@@ -630,6 +630,7 @@ const CHOICE_EVENTS = [
 ];
 
 let pendingChoiceEvent = null;
+let eventChoiceListenersBound = false;
 
 function openEventChoiceModal(){
   const m = $("eventChoiceModal");
@@ -637,6 +638,10 @@ function openEventChoiceModal(){
 }
 function closeEventChoiceModal(){
   const m = $("eventChoiceModal");
+  if(pendingChoiceEvent){
+    toast("Escolha A ou B para continuar.");
+    return;
+  }
   if(m) m.hidden = true;
 }
 
@@ -666,6 +671,37 @@ function chooseEvent(which){
   closeEventChoiceModal();
   renderUI();
   renderLog();
+}
+
+function bindEventChoiceListeners(){
+  if(eventChoiceListenersBound) return;
+
+  const btnA = $("evAButton");
+  const btnB = $("evBButton");
+  const btnClose = $("btnCloseEventChoice");
+
+  if(btnA){
+    btnA.addEventListener("click", (e)=>{
+      e.preventDefault();
+      chooseEvent("A");
+    });
+  }
+
+  if(btnB){
+    btnB.addEventListener("click", (e)=>{
+      e.preventDefault();
+      chooseEvent("B");
+    });
+  }
+
+  if(btnClose){
+    btnClose.addEventListener("click", (e)=>{
+      e.preventDefault();
+      closeEventChoiceModal();
+    });
+  }
+
+  eventChoiceListenersBound = true;
 }
 
 function maybeTriggerChoiceEvent(){
@@ -1127,6 +1163,8 @@ window.addEventListener("keydown", (e)=>{
 
 // --------- boot ---------
 function boot(){
+  bindEventChoiceListeners();
+
   loadAudio();
   loadMusic();
   loadAccess();
