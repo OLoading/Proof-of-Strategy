@@ -1,0 +1,1761 @@
+// ==================================================
+// PROOF OF STRATEGY — game.js
+// Organizado + comentado (Fix definitivo pós Patch 0.5)
+// Seções: Utils • Áudio • Acessibilidade • Stats • State • Loja • UI • Modals • Boot
+// ==================================================
+
+// ==================================================
+// SECTION: Utils
+// ==================================================
+const $ = (id) => document.getElementById(id);
+
+function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+function fmt(n, d=0){
+  if (!isFinite(n)) return "0";
+  return Number(n).toLocaleString("pt-BR", { maximumFractionDigits: d, minimumFractionDigits: d });
+}
+function toast(msg){
+  const t = $("toast");
+  if(!t) return;
+  t.textContent = msg;
+  t.hidden = false;
+  clearTimeout(toast._tm);
+  toast._tm = setTimeout(()=> t.hidden = true, 1400);
+}
+function fmtTime(seconds){
+  if(!isFinite(seconds) || seconds <= 0) return "—";
+  if(seconds < 60) return `${Math.ceil(seconds)}s`;
+  const m = seconds/60;
+  if(m < 60) return `${Math.ceil(m)}min`;
+  const h = m/60;
+  if(h < 48) return `${Math.ceil(h)}h`;
+  const d = h/24;
+  return `${Math.ceil(d)}d`;
+}
+function priceFor(upg, qtyOwned){
+  const g = upg.growth ?? CONFIG.pricing.genericGrowth;
+  return upg.baseCost * Math.pow(g, qtyOwned);
+}
+
+
+// ==================================================
+// SECTION: Áudio (SFX)
+// ==================================================
+const AUDIO_KEY = "pos_audio_v1";
+
+const AUDIO = {
+  enabled: true,
+  volume: 0.6,
+  sounds: {},
+  lastPlayed: {},
+  cooldownMs: { click:35, block:120, buy:90, event:250, error:200 }
+};
+
+function loadSound(name){
+  const a = new Audio(`sounds/${name}.mp3`);
+  a.volume = AUDIO.volume;
+  return a;
+}
+function initAudio(){
+  AUDIO.sounds = {
+    click: loadSound("click"),
+    block: loadSound("block"),
+    buy: loadSound("buy"),
+    event: loadSound("event"),
+    error: loadSound("error"),
+  };
+}
+function applyAudioSettings(){
+  for(const k in AUDIO.sounds) AUDIO.sounds[k].volume = AUDIO.volume;
+}
+function saveAudio(){
+  localStorage.setItem(AUDIO_KEY, JSON.stringify({ enabled: AUDIO.enabled, volume: AUDIO.volume }));
+}
+function loadAudio(){
+  try{
+    const raw = localStorage.getItem(AUDIO_KEY);
+    if(!raw) return;
+    const d = JSON.parse(raw);
+    if(typeof d.enabled === "boolean") AUDIO.enabled = d.enabled;
+    if(typeof d.volume === "number") AUDIO.volume = clamp(d.volume, 0, 1);
+  }catch{}
+}
+function playSound(name){
+  if(!AUDIO.enabled) return;
+  const s = AUDIO.sounds[name];
+  if(!s) return;
+
+  const now = performance.now();
+  const cd = AUDIO.cooldownMs?.[name] ?? 0;
+  const last = AUDIO.lastPlayed?.[name] ?? -1e9;
+  if(now - last < cd) return;
+  AUDIO.lastPlayed[name] = now;
+
+  const vol = name === "error" ? (AUDIO.volume * 0.75) : AUDIO.volume;
+  const c = s.cloneNode();
+  c.volume = vol;
+  c.play().catch(()=>{});
+}
+
+
+// ==================================================
+// SECTION: Música (ambiente)
+// ==================================================
+const MUSIC_KEY = "pos_music_v1";
+
+const MUSIC = {
+  enabled: false,
+  volume: 0.25,
+  el: null
+};
+
+function initMusic(){
+  const a = new Audio("sounds/ambient.mp3");
+  a.loop = true;
+  a.volume = MUSIC.volume;
+  MUSIC.el = a;
+}
+function applyMusicSettings(){
+  if(MUSIC.el) MUSIC.el.volume = MUSIC.volume;
+}
+function saveMusic(){
+  localStorage.setItem(MUSIC_KEY, JSON.stringify({ enabled: MUSIC.enabled, volume: MUSIC.volume }));
+}
+function loadMusic(){
+  try{
+    const raw = localStorage.getItem(MUSIC_KEY);
+    if(!raw) return;
+    const d = JSON.parse(raw);
+    if(typeof d.enabled === "boolean") MUSIC.enabled = d.enabled;
+    if(typeof d.volume === "number") MUSIC.volume = clamp(d.volume, 0, 1);
+  }catch{}
+}
+async function startMusic(){
+  if(!MUSIC.el || !MUSIC.enabled) return;
+  try{ await MUSIC.el.play(); } catch {}
+}
+function stopMusic(){
+  if(!MUSIC.el) return;
+  MUSIC.el.pause();
+  MUSIC.el.currentTime = 0;
+}
+
+
+// ==================================================
+// SECTION: Acessibilidade
+// - Contraste usa a classe CSS: .contrast-on
+// ==================================================
+const ACCESS_KEY = "pos_access_v1";
+
+const ACCESS = {
+  highContrast: false,
+  reduceMotion: false
+};
+
+function loadAccess(){
+  try{
+    const raw = localStorage.getItem(ACCESS_KEY);
+    if(!raw) return;
+    const d = JSON.parse(raw);
+    ACCESS.highContrast = !!d.highContrast;
+    ACCESS.reduceMotion = !!d.reduceMotion;
+  }catch{}
+}
+function saveAccess(){
+  localStorage.setItem(ACCESS_KEY, JSON.stringify(ACCESS));
+}
+function applyAccess(){
+  document.body.classList.toggle("contrast-on", ACCESS.highContrast);
+  document.body.classList.toggle("reduce-motion", ACCESS.reduceMotion);
+}
+
+
+// ==================================================
+// SECTION: Estatísticas (metaprogress)
+// ==================================================
+const STATS_KEY = "pos_stats_v1";
+
+function freshStats(){
+  return {
+    totalSeconds: 0,
+    runSeconds: 0,
+    totalClicks: 0,
+    bestRunBlocks: 0,
+    totalForks: 0,
+    peakSat: 0
+  };
+}
+let stats = freshStats();
+
+function loadStats(){
+  try{
+    const raw = localStorage.getItem(STATS_KEY);
+    if(!raw) return;
+    const d = JSON.parse(raw);
+    stats = { ...freshStats(), ...d };
+  }catch{}
+}
+function saveStats(){
+  localStorage.setItem(STATS_KEY, JSON.stringify(stats));
+}
+function fmtDur(sec){
+  sec = Math.max(0, Math.floor(sec));
+  if(sec < 60) return `${sec}s`;
+  const m = Math.floor(sec/60);
+  const h = Math.floor(m/60);
+  const d = Math.floor(h/24);
+  if(d > 0) return `${d}d ${h%24}h`;
+  if(h > 0) return `${h}h ${m%60}m`;
+  return `${m}m`;
+}
+
+
+// ==================================================
+// SECTION: Estado do jogo (run atual)
+// ==================================================
+function freshState(){
+  return {
+    sat: 0,
+    blockProgress: 0,
+    blocksMined: 0,
+
+    pcBase: 1,
+    hashBase: 0,
+    energy: 0,
+
+    mult: { pc:1, hash:1, energy:1, difficulty:1, reward:1 },
+    path: null,
+
+    fork: { totalForks:0, fp:0, bonusMult:1 },
+    owned: {},
+
+    features: { autoClick:false, noDeficitPenalty:false },
+
+    activeEvent: null,
+    temp: { pc:1, hash:1, energyCost:1, reward:1 },
+
+    // ✅ Patch 0.5: specialization
+    spec: { eng: { a:0, b:0, c:0 }, max: { a:0, b:0, c:0 } },
+
+    ui: { tab:"click" },
+    log: [],
+    ach: { unlocked:{} },
+
+    // PATCH 0.6 P2 — efeitos temporários (eventos com escolha)
+    choiceFx: [],
+    choiceLastBlock: 0,
+    choiceCooldownUntilBlock: 0,
+
+    lastTick: Date.now(),
+    lastSave: Date.now(),
+    lastAutoClick: Date.now(),
+  };
+}
+
+let state = freshState();
+
+
+// ==================================================
+// SECTION: Conquistas
+// ==================================================
+const ACHIEVEMENTS = [
+  { id:"first_block", name:"Primeiro bloco", desc:"Valide 1 bloco.", check:(s)=> s.blocksMined >= 1 },
+  { id:"ten_blocks", name:"Dez blocos", desc:"Valide 10 blocos.", check:(s)=> s.blocksMined >= 10 },
+  { id:"first_halving", name:"Primeiro Halving", desc:"Chegue ao primeiro halving (50 blocos).", check:(s)=> s.blocksMined >= 50 },
+  { id:"choice_made", name:"Decisão tomada", desc:"Escolha Solo ou Pool no bloco 100.", check:(s)=> !!s.path },
+  { id:"one_btc", name:"1 BTC acumulado", desc:"Chegue a 1 BTC em SAT (saldo atual).", check:(s)=> s.sat >= CONFIG.SAT_PER_BTC },
+  { id:"fork_ready", name:"Pronto pro Fork", desc:"Desbloqueie Hard Fork (200 blocos).", check:(s)=> s.blocksMined >= CONFIG.fork.minBlocks },
+];
+
+function pushLog(msg){
+  state.log.unshift({ t: Date.now(), msg });
+  if(state.log.length > 80) state.log.length = 80;
+}
+function unlockAchievement(id){
+  if(state.ach.unlocked[id]) return;
+  state.ach.unlocked[id] = true;
+  const a = ACHIEVEMENTS.find(x=>x.id===id);
+  if(a){
+    toast(`Conquista: ${a.name}`);
+    pushLog(`🏆 Conquista desbloqueada: ${a.name}`);
+  }
+}
+function checkAchievements(){
+  for(const a of ACHIEVEMENTS){
+    if(!state.ach.unlocked[a.id] && a.check(state)) unlockAchievement(a.id);
+  }
+}
+
+
+// ==================================================
+// SECTION: Especializações (Patch 0.5)
+// ==================================================
+const SPEC = {
+  capTotal: 10,
+  engineer: [
+    { id:"a", name:"Grid Tuning", desc:"+1 nível = -4% custo de energia", max:5, apply:(s,lvl)=>{ s.temp.energyCost *= (1 - 0.04*lvl); } },
+    { id:"b", name:"ASIC Scheduler", desc:"+1 nível = +6% H/s", max:5, apply:(s,lvl)=>{ s.temp.hash *= (1 + 0.06*lvl); } },
+    { id:"c", name:"Difficulty Dampener", desc:"+1 nível = -3% dificuldade", max:4, apply:(s,lvl)=>{ s.mult.difficulty *= (1 - 0.03*lvl); } },
+  ],
+  maxi: [
+    { id:"a", name:"Block Hunger", desc:"+1 nível = +5% recompensa", max:5, apply:(s,lvl)=>{ s.mult.reward *= (1 + 0.05*lvl); } },
+    { id:"b", name:"Click Brutality", desc:"+1 nível = +6% PC", max:5, apply:(s,lvl)=>{ s.temp.pc *= (1 + 0.06*lvl); } },
+    { id:"c", name:"Overclock Mindset", desc:"+1 nível = +4% H/s, +2% custo energia", max:4, apply:(s,lvl)=>{ s.temp.hash *= (1 + 0.04*lvl); s.temp.energyCost *= (1 + 0.02*lvl); } },
+  ]
+};
+
+function specTotalLevels(){
+  const e = state.spec?.eng ?? {};
+  const m = state.spec?.max ?? {};
+  const sum = (obj)=> Object.values(obj).reduce((a,b)=>a+(b||0),0);
+  return sum(e) + sum(m);
+}
+function specAvailablePoints(){
+  const total = Math.floor(state.fork?.fp || 0);
+  return Math.max(0, total - specTotalLevels());
+}
+function applySpecialization(){
+  if(!state.spec) return;
+
+  for(const perk of SPEC.engineer){
+    const lvl = state.spec.eng?.[perk.id] ?? 0;
+    if(lvl > 0) perk.apply(state, lvl);
+  }
+  for(const perk of SPEC.maxi){
+    const lvl = state.spec.max?.[perk.id] ?? 0;
+    if(lvl > 0) perk.apply(state, lvl);
+  }
+}
+function renderSpec(){
+  const fpEl = $("specFP");
+  const avEl = $("specAvail");
+  if(fpEl) fpEl.textContent = fmt(state.fork?.fp || 0, 2);
+  if(avEl) avEl.textContent = fmt(specAvailablePoints(), 0);
+
+  function rowHTML(perk, tree){
+    const isEng = tree === "eng";
+    const lv = isEng ? (state.spec.eng?.[perk.id] ?? 0) : (state.spec.max?.[perk.id] ?? 0);
+    const canBuy = specAvailablePoints() > 0 && lv < perk.max && specTotalLevels() < SPEC.capTotal;
+
+    return `
+      <div class="spec-item">
+        <div>
+          <div class="spec-name">${perk.name}</div>
+          <div class="spec-sub">${perk.desc}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="spec-level">Lv ${lv}/${perk.max}</div>
+          <button class="btn ${canBuy ? "primary" : ""}" ${canBuy ? "" : "disabled"} data-spec="${tree}:${perk.id}">
+            Comprar
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  const eng = $("specEngineer");
+  const max = $("specMaxi");
+  if(eng) eng.innerHTML = SPEC.engineer.map(p=>rowHTML(p,"eng")).join("");
+  if(max) max.innerHTML = SPEC.maxi.map(p=>rowHTML(p,"max")).join("");
+
+  document.querySelectorAll("[data-spec]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const [tree, id] = btn.dataset.spec.split(":");
+      buySpec(tree, id);
+    });
+  });
+}
+function buySpec(tree, id){
+  if(specAvailablePoints() <= 0){
+    toast("Sem FP disponível.");
+    playSound("error");
+    return;
+  }
+  if(specTotalLevels() >= SPEC.capTotal){
+    toast("Limite de níveis atingido.");
+    playSound("error");
+    return;
+  }
+
+  const list = tree === "eng" ? SPEC.engineer : SPEC.maxi;
+  const perk = list.find(p=>p.id===id);
+  if(!perk) return;
+
+  const node = tree === "eng" ? state.spec.eng : state.spec.max;
+  const cur = node[id] ?? 0;
+  if(cur >= perk.max){
+    toast("Max level.");
+    playSound("error");
+    return;
+  }
+
+  node[id] = cur + 1;
+  toast("Perk comprado");
+  playSound("buy");
+  pushLog(`🧬 Perk: ${perk.name} (Lv ${node[id]})`);
+
+  clearTemp();
+  renderUI();
+  renderSpec();
+  SAVE.saveGame(state);
+}
+
+// --------- derived ---------
+// ==================================================
+// PATCH 0.6 P2 — Choice FX (multiplicadores temporários por blocos)
+// ==================================================
+function choiceFxMults(){
+  const m = { pcMul:1, difficultyMul:1, energyCostMul:1, satRateMul:1 };
+  const list = Array.isArray(state.choiceFx) ? state.choiceFx : [];
+  for(const it of list){
+    const fx = it.fx || {};
+    if(typeof fx.pcMul === "number") m.pcMul *= fx.pcMul;
+    if(typeof fx.difficultyMul === "number") m.difficultyMul *= fx.difficultyMul;
+    if(typeof fx.energyCostMul === "number") m.energyCostMul *= fx.energyCostMul;
+    if(typeof fx.satRateMul === "number") m.satRateMul *= fx.satRateMul;
+  }
+  return m;
+}
+
+function addChoiceFx(id, blocks, fx){
+  state.choiceFx = Array.isArray(state.choiceFx) ? state.choiceFx : [];
+  state.choiceFx.push({ id, blocksLeft: blocks, fx });
+  pushLog(`⏳ Efeito ativo (${blocks} blocos): ${id}`);
+}
+
+function tickChoiceFxOnBlock(){
+  if(!Array.isArray(state.choiceFx) || state.choiceFx.length === 0) return;
+  for(const it of state.choiceFx) it.blocksLeft -= 1;
+  const before = state.choiceFx.length;
+  state.choiceFx = state.choiceFx.filter(it => it.blocksLeft > 0);
+  if(state.choiceFx.length !== before) pushLog(`✅ Um efeito temporário expirou.`);
+}
+
+function currentDifficulty(){
+  const steps = Math.floor(state.blocksMined / CONFIG.difficulty.everyNBlocks);
+  const base = CONFIG.difficulty.start * Math.pow(CONFIG.difficulty.multiplier, steps);
+  const fx = choiceFxMults();
+  return base * state.mult.difficulty * fx.difficultyMul;
+}
+function currentBlockReward(){
+  const halvings = Math.floor(state.blocksMined / CONFIG.block.halvingEveryBlocks);
+  const base = CONFIG.block.baseRewardSat / Math.pow(2, halvings);
+  return Math.max(0.0001, base) * state.mult.reward * state.temp.reward;
+}
+function pcValue(){
+  const fx = choiceFxMults();
+  return state.pcBase * state.mult.pc * state.temp.pc * state.fork.bonusMult * fx.pcMul;
+}
+function hashValue(deficit){
+  const h = state.hashBase * state.mult.hash * state.temp.hash * state.fork.bonusMult;
+  if(deficit && !state.features.noDeficitPenalty) return h * CONFIG.energy.deficitPenaltyHashrateMult;
+  return h;
+}
+function energyPerSec(){ return state.energy * state.mult.energy; }
+function energyCostPerSec(){ const fx = choiceFxMults();
+  return energyPerSec() * CONFIG.energy.satPerEnergyPerSec * state.temp.energyCost * fx.energyCostMul; }
+function nextHalvingIn(){
+  const mod = state.blocksMined % CONFIG.block.halvingEveryBlocks;
+  return CONFIG.block.halvingEveryBlocks - mod;
+}
+function canFork(){ return state.blocksMined >= CONFIG.fork.minBlocks; }
+function calcFP(blocks){ return Math.sqrt(blocks / 10); }
+
+// --------- ROI ---------
+function estimateNetSatPerSec(){
+  const D = currentDifficulty();
+  const deficit = state.sat < 0;
+  const h = hashValue(deficit);
+  const reward = currentBlockReward();
+  const blocksPerSec = (h / D) / 100;
+  const mining = blocksPerSec * reward;
+  const cost = energyCostPerSec();
+  return mining - cost;
+}
+function estimateNetSatPerSecFromClone(clone){
+  const Dsteps = Math.floor(clone.blocksMined / CONFIG.difficulty.everyNBlocks);
+  const Dbase = CONFIG.difficulty.start * Math.pow(CONFIG.difficulty.multiplier, Dsteps);
+  const Dclone = Dbase * (clone.mult?.difficulty ?? 1);
+
+  const halvings = Math.floor(clone.blocksMined / CONFIG.block.halvingEveryBlocks);
+  const rbase = CONFIG.block.baseRewardSat / Math.pow(2, halvings);
+  const rclone = Math.max(0.0001, rbase) * (clone.mult?.reward ?? 1) * (clone.temp?.reward ?? 1);
+
+  const deficit = (clone.sat < 0) && !(clone.features?.noDeficitPenalty);
+  const hcloneBase = (clone.hashBase ?? 0) * (clone.mult?.hash ?? 1) * (clone.temp?.hash ?? 1) * (clone.fork?.bonusMult ?? 1);
+  const hclone = deficit ? hcloneBase * CONFIG.energy.deficitPenaltyHashrateMult : hcloneBase;
+
+  const eclone = (clone.energy ?? 0) * (clone.mult?.energy ?? 1);
+  const ecclone = eclone * CONFIG.energy.satPerEnergyPerSec * (clone.temp?.energyCost ?? 1);
+
+  const blocksPerSec = (hclone / Dclone) / 100;
+  return (blocksPerSec * rclone) - ecclone;
+}
+function simulateUpgradeDelta(id){
+  const u = UPGRADES.find(x=>x.id===id);
+  if(!u) return { delta:0, roiSec:Infinity };
+
+  const qty = state.owned[id] ?? 0;
+  if(u.type === "unique" && qty >= 1) return { delta:0, roiSec:Infinity };
+
+  const net0 = estimateNetSatPerSec();
+
+  const clone = JSON.parse(JSON.stringify(state));
+  clone.mult = clone.mult ?? { pc:1, hash:1, energy:1, difficulty:1, reward:1 };
+  clone.temp = { pc:1, hash:1, energyCost:1, reward:1 };
+  clone.features = clone.features ?? { autoClick:false, noDeficitPenalty:false };
+  clone.fork = clone.fork ?? { bonusMult:1 };
+
+  u.apply(clone);
+
+  const net1 = estimateNetSatPerSecFromClone(clone);
+  const delta = net1 - net0;
+
+  const cost = priceFor(u, qty);
+  return { delta, roiSec: delta > 0 ? (cost / delta) : Infinity };
+}
+
+
+// ==================================================
+// SECTION: Eventos
+// ==================================================
+function clearTemp(){
+  state.temp = { pc:1, hash:1, energyCost:1, reward:1 };
+  applySpecialization(); // ✅ perks sempre aplicados
+}
+function startEvent(ev){
+  if(ev.id !== "lucky"){
+    state.activeEvent = { id: ev.id, endsAt: Date.now() + ev.dur * 1000 };
+  }
+  ev.start(state);
+  if($("eventTag")){
+    $("eventTag").hidden = false;
+    $("eventTag").textContent = ev.tag;
+  }
+  toast(ev.name);
+  playSound("event");
+  pushLog(`✨ Evento: ${ev.name}`);
+
+  if(ev.id === "lucky"){
+    state.activeEvent = null;
+    setTimeout(()=>{ if($("eventTag")) $("eventTag").hidden = true; }, 1200);
+  }
+}
+function maybeTriggerEvent(){
+  if(Math.random() >= CONFIG.block.eventChancePerBlock) return;
+  clearTemp();
+  const ev = EVENTS[Math.floor(Math.random() * EVENTS.length)];
+  startEvent(ev);
+}
+function updateEvent(){
+  if(!state.activeEvent) return;
+  if(Date.now() >= state.activeEvent.endsAt){
+    state.activeEvent = null;
+    clearTemp();
+    if($("eventTag")) $("eventTag").hidden = true;
+    pushLog("⏱️ Evento terminou");
+    toast("Evento terminou");
+  }
+}
+
+// --------- Solo vs Pool ---------
+// ==================================================
+// PATCH 0.6 P2 — Eventos com escolha (hardcore)
+// - aparecem pós-bloco (com cooldown)
+// - aplicam efeitos temporários e/ou permanentes
+// ==================================================
+const CHOICE_EVENTS = [
+  {
+    id: "congestion",
+    title: "Congestionamento da Rede",
+    desc: "A mempool está lotada. Você ajusta a estratégia agora.",
+    a: {
+      name: "Pagar taxa extra",
+      tag: "Consistência",
+      lines: ["-5% SAT/s por 30 blocos"],
+      apply: () => addChoiceFx("fee_paid", 30, { satRateMul: 0.95 }),
+    },
+    b: {
+      name: "Ignorar e esperar",
+      tag: "Risco",
+      lines: ["+20% dificuldade por 15 blocos"],
+      apply: () => addChoiceFx("fee_skip", 15, { difficultyMul: 1.20 }),
+    },
+  },
+  {
+    id: "overclock",
+    title: "Oportunidade de Overclock",
+    desc: "Um perfil agressivo pode acelerar sua run, mas cobra um preço.",
+    a: {
+      name: "Aceitar overclock",
+      tag: "Burst",
+      lines: ["+25% PC por 20 blocos", "Depois: -10% PC permanente"],
+      apply: () => {
+        addChoiceFx("oc_burst", 20, { pcMul: 1.25 });
+        state.mult.pc *= 0.90;
+        pushLog("🔥 Overclock aceito: burst temporário e desgaste permanente (-10% PC).");
+      },
+    },
+    b: {
+      name: "Recusar",
+      tag: "Estável",
+      lines: ["+5% H/s permanente"],
+      apply: () => {
+        state.mult.hash *= 1.05;
+        pushLog("🧊 Overclock recusado: +5% H/s permanente.");
+      },
+    },
+  },
+  {
+    id: "cold_snap",
+    title: "Queda de Temperatura",
+    desc: "O ambiente resfriou — chance de economizar ou fortalecer a operação.",
+    a: {
+      name: "Aproveitar resfriamento",
+      tag: "Economia",
+      lines: ["-30% custo de energia por 10 blocos"],
+      apply: () => addChoiceFx("cold_save", 10, { energyCostMul: 0.70 }),
+    },
+    b: {
+      name: "Ignorar e reforçar",
+      tag: "Resiliência",
+      lines: ["+10% RB permanente", "+4% D permanente"],
+      apply: () => {
+        state.mult.reward *= 1.10;
+        state.mult.difficulty *= 1.04;
+        pushLog("🧱 Reforço aplicado: +10% RB e +4% D permanentes.");
+      },
+    },
+  },
+];
+
+let pendingChoiceEvent = null;
+
+function openEventChoiceModal(){
+  const m = $("eventChoiceModal");
+  if(m) m.hidden = false;
+}
+function closeEventChoiceModal(){
+  const m = $("eventChoiceModal");
+  if(m) m.hidden = true;
+}
+
+function renderEventChoiceModal(ev){
+  $("evTitle").textContent = ev.title;
+  $("evDesc").textContent = ev.desc;
+
+  $("evAName").textContent = ev.a.name;
+  $("evATag").textContent  = ev.a.tag;
+  $("evAList").innerHTML = ev.a.lines.map(x => `<li>${x}</li>`).join("");
+
+  $("evBName").textContent = ev.b.name;
+  $("evBTag").textContent  = ev.b.tag;
+  $("evBList").innerHTML = ev.b.lines.map(x => `<li>${x}</li>`).join("");
+}
+
+function chooseEvent(which){
+  if(!pendingChoiceEvent) return;
+  const ev = pendingChoiceEvent;
+  pendingChoiceEvent = null;
+
+  if(which === "A") ev.a.apply();
+  else ev.b.apply();
+
+  pushLog(`🧾 Escolha tomada: ${ev.id} (${which})`);
+  playSound("event");
+  closeEventChoiceModal();
+  renderUI();
+  renderLog();
+}
+
+function maybeTriggerChoiceEvent(){
+  if(state.blocksMined < (state.choiceCooldownUntilBlock || 0)) return;
+
+  const m = $("eventChoiceModal");
+  if(m && !m.hidden) return;
+
+  const choice = $("choiceModal");
+  if(choice && !choice.hidden) return;
+
+  if(Math.random() > CONFIG.block.choiceEventChancePerBlock) return;
+
+  const ev = CHOICE_EVENTS[Math.floor(Math.random() * CHOICE_EVENTS.length)];
+  if(!ev) return;
+
+  pendingChoiceEvent = ev;
+  state.choiceLastBlock = state.blocksMined;
+  state.choiceCooldownUntilBlock = state.blocksMined + CONFIG.block.choiceEventCooldownBlocks;
+
+  pushLog(`🎲 Evento: ${ev.title}`);
+  renderEventChoiceModal(ev);
+  openEventChoiceModal();
+}
+
+// HUD: efeitos ativos
+function renderChoiceFxHUD(){
+  const root = $("fxList");
+  const hint = $("fxHint");
+  if(!root) return;
+
+  const list = Array.isArray(state.choiceFx) ? state.choiceFx : [];
+  if(list.length === 0){
+    root.innerHTML = `<div class="muted small">Nenhum efeito temporário ativo.</div>`;
+    if(hint) hint.textContent = "Eventos temporários e permanentes";
+    return;
+  }
+
+  if(hint) hint.textContent = `${list.length} efeito(s) temporário(s) ativo(s)`;
+  root.innerHTML = "";
+
+  const pill = (txt) => `<span class="fx-pill">${txt}</span>`;
+
+  for(const it of list){
+    const fx = it.fx || {};
+    const pills = [];
+    if(typeof fx.pcMul === "number" && fx.pcMul !== 1) pills.push(pill(`PC ×${fx.pcMul.toFixed(2)}`));
+    if(typeof fx.difficultyMul === "number" && fx.difficultyMul !== 1) pills.push(pill(`D ×${fx.difficultyMul.toFixed(2)}`));
+    if(typeof fx.energyCostMul === "number" && fx.energyCostMul !== 1) pills.push(pill(`⚡ ×${fx.energyCostMul.toFixed(2)}`));
+    if(typeof fx.satRateMul === "number" && fx.satRateMul !== 1) pills.push(pill(`SAT/s ×${fx.satRateMul.toFixed(2)}`));
+
+    const row = document.createElement("div");
+    row.className = "fx-row";
+    row.innerHTML = `
+      <div>
+        <div class="fx-name">${it.id}</div>
+        <div class="fx-meta">${pills.join("") || pill("Efeito")}</div>
+      </div>
+      <div class="fx-time">${it.blocksLeft} blocos</div>
+    `;
+    root.appendChild(row);
+  }
+}
+
+function openChoiceModal(){
+  if(!$("choiceModal")) return;
+  $("choiceModal").hidden = false;
+  document.body.style.overflow = "hidden";
+}
+function closeChoiceModal(){
+  if(!$("choiceModal")) return;
+  $("choiceModal").hidden = true;
+  document.body.style.overflow = "";
+}
+function applyPathChoice(choice){
+  if(state.path) return;
+  state.path = choice;
+
+  if(choice === "solo"){
+    state.mult.reward *= 1.30;
+    state.mult.difficulty *= 1.25;
+    pushLog("🔴 Escolha irreversível: Minerador Solo (+RB, +D)");
+  }else{
+    state.mult.difficulty *= 0.80;
+    state.mult.reward *= 0.85;
+    pushLog("🔵 Escolha irreversível: Pool de Mineração (-D, -RB)");
+  }
+
+  toast("Escolha aplicada");
+  unlockAchievement("choice_made");
+  closeChoiceModal();
+  renderShop();
+  renderUI();
+}
+
+
+// ==================================================
+// SECTION: Loja / Upgrades
+// - Depende de window.UPGRADES (upgrades.js)
+// ==================================================
+function getUpgradesForTab(tab){
+  return UPGRADES.filter(u => u.tab === tab && (u.visible?.(state) ?? true));
+}
+function ownedQty(id){ return state.owned[id] ?? 0; }
+function isUniqueOwned(u){ return u.type === "unique" && ownedQty(u.id) >= 1; }
+
+function renderShop(){
+  const list = $("shopList");
+  if(!list) return;
+  list.innerHTML = "";
+
+  const ups = getUpgradesForTab(state.ui.tab);
+  if(ups.length === 0){
+    list.innerHTML = `<div class="muted small">Nada aqui ainda. Continue minerando…</div>`;
+    return;
+  }
+
+  for(const u of ups){
+    const qty = ownedQty(u.id);
+    const disabled = isUniqueOwned(u);
+
+    const cost = priceFor(u, qty);
+    const afford = state.sat >= cost && !disabled;
+
+    const sim = simulateUpgradeDelta(u.id);
+    const roiText = sim.roiSec === Infinity ? "ROI: —" : `ROI: ${fmtTime(sim.roiSec)}`;
+
+    const el = document.createElement("div");
+    el.className = "shop-item";
+    el.innerHTML = `
+      <div>
+        <div class="shop-name">${u.name}</div>
+        <div class="shop-desc">${u.desc}</div>
+        <div class="shop-meta">
+          <span class="pill btc">Custo: ${fmt(cost, 0)} SAT</span>
+          <span class="pill">${u.effectLabel ? u.effectLabel(state) : ""}</span>
+          <span class="pill">${roiText}</span>
+        </div>
+      </div>
+      <div class="shop-actions">
+        <button class="btn ${afford ? "primary" : ""}" ${afford ? "" : "disabled"} data-buy="${u.id}">
+          ${disabled ? "Comprado" : "Comprar"}
+        </button>
+        <div class="qty">Qtd: ${qty}</div>
+      </div>
+    `;
+
+    el.querySelector("[data-buy]").addEventListener("click", () => buyUpgrade(u.id));
+    list.appendChild(el);
+  }
+}
+
+function buyUpgrade(id){
+  const u = UPGRADES.find(x => x.id === id);
+  if(!u) return;
+  const qty = ownedQty(id);
+
+  if(u.type === "unique" && qty >= 1){
+    toast("Você já comprou isso.");
+    playSound("error");
+    return;
+  }
+  const cost = priceFor(u, qty);
+  if(state.sat < cost){
+    toast("SAT insuficiente.");
+    playSound("error");
+    return;
+  }
+
+  state.sat -= cost;
+  state.owned[id] = qty + 1;
+  u.apply(state);
+
+  toast("Upgrade comprado");
+  playSound("buy");
+  pushLog(`🛒 Comprou: ${u.name}`);
+  renderShop();
+  renderUI();
+}
+
+
+// ==================================================
+// SECTION: Loop do jogo
+// ==================================================
+function addProgress(amount){
+  state.blockProgress += amount;
+  if(state.blockProgress >= 100){
+    while(state.blockProgress >= 100){
+      state.blockProgress -= 100;
+      onBlockMined();
+      if(state.blocksMined % 5 === 0) renderShop();
+    }
+  }
+}
+
+function onBlockMined(){
+  playSound("block");
+
+  const reward = currentBlockReward();
+  state.sat += reward;
+  state.blocksMined += 1;
+
+  if(state.blocksMined > stats.bestRunBlocks) stats.bestRunBlocks = state.blocksMined;
+
+  maybeTriggerEvent();
+
+  // PATCH 0.6 P2 — tick de efeitos temporários + chance de evento com escolha
+  tickChoiceFxOnBlock();
+  maybeTriggerChoiceEvent();
+
+  if(state.blocksMined % CONFIG.difficulty.everyNBlocks === 0){
+    toast(`Dificuldade aumentou`);
+    pushLog(`📈 Dificuldade aumentou (blocos: ${state.blocksMined})`);
+  }
+  if(state.blocksMined % CONFIG.block.halvingEveryBlocks === 0){
+    toast(`Halving aplicado`);
+    pushLog(`🪓 Halving aplicado (blocos: ${state.blocksMined})`);
+  }
+
+  if(state.blocksMined >= 100 && !state.path){
+    pushLog("🧭 Decisão disponível: Solo vs Pool");
+    openChoiceModal();
+  }
+}
+
+function clickMine(){
+  stats.totalClicks += 1;
+
+  const D = currentDifficulty();
+  const p = pcValue();
+  addProgress(p / D);
+
+  playSound("click");
+  if(MUSIC.enabled) startMusic();
+
+  const bm = $("btnMine");
+  if(bm){
+    bm.style.transform = "translateY(1px)";
+    setTimeout(()=> bm.style.transform = "", 60);
+  }
+}
+
+function update(dt){
+  updateEvent();
+
+  stats.totalSeconds += dt;
+  stats.runSeconds += dt;
+  if(state.sat > stats.peakSat) stats.peakSat = state.sat;
+
+  const deficit = state.sat < 0;
+  if($("profitTag")) $("profitTag").hidden = !deficit;
+
+  const D = currentDifficulty();
+  const h = hashValue(deficit);
+  addProgress((h * dt) / D);
+
+  state.sat -= energyCostPerSec() * dt;
+
+  if(state.features.autoClick){
+    if(Date.now() - state.lastAutoClick >= 5000){
+      state.lastAutoClick = Date.now();
+      addProgress(pcValue() / D);
+    }
+  }
+
+  if(Date.now() - state.lastSave >= CONFIG.autosaveMs){
+    SAVE.saveGame(state);
+    state.lastSave = Date.now();
+    if($("saveInfo")) $("saveInfo").textContent = `Salvo • ${new Date().toLocaleTimeString("pt-BR")}`;
+    saveStats();
+  }
+
+  checkAchievements();
+}
+
+function loop(){
+  const now = Date.now();
+  const dt = (now - state.lastTick) / 1000;
+  state.lastTick = now;
+
+  update(clamp(dt, 0, 0.5));
+  renderUI();
+  requestAnimationFrame(loop);
+}
+
+
+// ==================================================
+// SECTION: UI (render)
+// ==================================================
+function renderAchievements(){
+  if($("achCount")) $("achCount").textContent = `${Object.keys(state.ach.unlocked).length}/${ACHIEVEMENTS.length}`;
+  const list = $("achList");
+  if(!list) return;
+  list.innerHTML = "";
+
+  for(const a of ACHIEVEMENTS){
+    const ok = !!state.ach.unlocked[a.id];
+    const item = document.createElement("div");
+    item.className = `ach-item ${ok ? "" : "locked"}`;
+    item.innerHTML = `
+      <div class="ach-title">${ok ? "✅ " : "🔒 "}${a.name}</div>
+      <div class="ach-desc">${a.desc}</div>
+      <div class="ach-pill ${ok ? "unlocked" : ""}">${ok ? "Desbloqueada" : "Bloqueada"}</div>
+    `;
+    list.appendChild(item);
+  }
+}
+
+function renderLog(){
+  const list = $("logList");
+  if(!list) return;
+  list.innerHTML = "";
+  if(!state.log.length){
+    list.innerHTML = `<div class="muted small">Sem eventos ainda…</div>`;
+    return;
+  }
+  for(const line of state.log){
+    const el = document.createElement("div");
+    el.className = "log-line";
+    el.innerHTML = `
+      <div class="log-time">${new Date(line.t).toLocaleString("pt-BR")}</div>
+      <div>${line.msg}</div>
+    `;
+    list.appendChild(el);
+  }
+}
+
+function renderUI(){
+  if($("sat")) $("sat").textContent = fmt(state.sat, 0);
+  if($("btc")) $("btc").textContent = fmt(state.sat / CONFIG.SAT_PER_BTC, 8);
+
+  const D = currentDifficulty();
+  if($("difficulty")) $("difficulty").textContent = `${fmt(D, 2)}×`;
+
+  const reward = currentBlockReward();
+  if($("blockReward")) $("blockReward").textContent = fmt(reward, 2);
+
+  if($("blockPct")) $("blockPct").textContent = fmt(state.blockProgress, 1);
+  if($("progressBar")) $("progressBar").style.width = `${clamp(state.blockProgress, 0, 100)}%`;
+
+  if($("blocksMined")) $("blocksMined").textContent = fmt(state.blocksMined, 0);
+  if($("nextHalving")) $("nextHalving").textContent = fmt(nextHalvingIn(), 0);
+
+  const deficit = state.sat < 0;
+  const h = hashValue(deficit);
+  if($("hashrate")) $("hashrate").textContent = fmt(h, 1);
+
+  const blocksPerSec = (h / D) / 100;
+  if($("cpsSat")) $("cpsSat").textContent = fmt(blocksPerSec * reward, 1);
+
+  if($("energy")) $("energy").textContent = fmt(energyPerSec(), 2);
+  if($("energyCost")) $("energyCost").textContent = fmt(energyCostPerSec(), 2);
+
+  const pc = pcValue();
+  if($("pc")) $("pc").textContent = fmt(pc, 1);
+  if($("pcEffective")) $("pcEffective").textContent = fmt(pc / D, 2);
+  if($("mineSub")) $("mineSub").textContent = `+${fmt(pc / D, 2)} progresso/click`;
+
+  if($("fp")) $("fp").textContent = fmt(calcFP(state.blocksMined), 2);
+  if($("forkBonus")) $("forkBonus").textContent = `+${fmt((state.fork.bonusMult - 1) * 100, 1)}%`;
+  if($("btnFork")) $("btnFork").disabled = !canFork();
+
+  if(state.activeEvent){
+    const ev = EVENTS.find(x => x.id === state.activeEvent.id);
+    if(ev && $("eventTag")){
+      $("eventTag").hidden = false;
+      $("eventTag").textContent = ev.tag;
+    }
+  }
+
+  renderAchievements();
+  renderLog();
+  renderSpec();
+
+  // stats render
+  if($("bestRunTag")) $("bestRunTag").textContent = `Recorde: ${fmt(stats.bestRunBlocks ?? 0, 0)}`;
+  if($("statTotalTime")) $("statTotalTime").textContent = fmtDur(stats.totalSeconds);
+  if($("statRunTime")) $("statRunTime").textContent = fmtDur(stats.runSeconds);
+  if($("statClicks")) $("statClicks").textContent = fmt(stats.totalClicks, 0);
+  if($("statRunBlocks")) $("statRunBlocks").textContent = fmt(state.blocksMined, 0);
+  if($("statForks")) $("statForks").textContent = fmt(stats.totalForks, 0);
+  if($("statPeakSat")) $("statPeakSat").textContent = `${fmt(stats.peakSat, 0)} SAT`;
+}
+
+// --------- offline ---------
+function applyOfflineProgress(loadedObj){
+  const last = loadedObj.t;
+  const now = Date.now();
+  let secs = (now - last) / 1000;
+  secs = clamp(secs, 0, CONFIG.offline.maxSeconds);
+  if(secs <= 2) return;
+
+  // ✅ conta offline nas stats
+  stats.totalSeconds += secs;
+  stats.runSeconds += secs;
+  saveStats();
+
+  const D = currentDifficulty();
+  const deficit = state.sat < 0;
+  const h = hashValue(deficit) * CONFIG.offline.efficiency;
+
+  addProgress((h * secs) / D);
+  state.sat -= energyCostPerSec() * secs;
+
+  pushLog(`🕒 Offline aplicado: ${Math.floor(secs)}s`);
+  toast(`Offline: +${fmt(secs,0)}s aplicados`);
+}
+
+  // --------- settings modal ---------
+
+const btnOpenSettings = $("btnOpenSettings");
+const btnCloseSettings = $("btnCloseSettings");
+const settingsModal = $("settingsModal");
+
+function openSettings(){
+  if(!settingsModal) return;
+  settingsModal.hidden = false;
+  document.body.style.overflow = "hidden";
+}
+
+function closeSettings(){
+  if(!settingsModal) return;
+  settingsModal.hidden = true;
+  document.body.style.overflow = "";
+}
+
+// abrir
+if(btnOpenSettings){
+  btnOpenSettings.addEventListener("click", (e)=>{
+    e.preventDefault();
+    openSettings();
+  });
+}
+
+// fechar no X
+if(btnCloseSettings){
+  btnCloseSettings.addEventListener("click", (e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    closeSettings();
+  });
+}
+
+// fechar clicando fora do card
+if(settingsModal){
+  settingsModal.addEventListener("click", (e)=>{
+    if(e.target === settingsModal){
+      closeSettings();
+    }
+  });
+}
+
+// fechar com ESC
+window.addEventListener("keydown", (e)=>{
+  if(e.key === "Escape" && settingsModal && !settingsModal.hidden){
+    closeSettings();
+  }
+});
+
+// --------- boot ---------
+function boot(){
+  loadAudio();
+  loadMusic();
+  loadAccess();
+  loadStats();
+  applyAccess();
+
+  initAudio();
+  applyAudioSettings();
+
+  initMusic();
+  applyMusicSettings();
+  // ==============================
+  // LOAD SAVE (definitivo)
+  // ==============================
+  const loadedBoot = SAVE.loadGame();
+  if(loadedBoot && loadedBoot.s){
+    // merge com defaults pra evitar state incompleto quebrar o jogo
+    state = Object.assign(freshState(), loadedBoot.s);
+
+    // garante estruturas aninhadas
+    state.mult = state.mult ?? { pc:1, hash:1, energy:1, difficulty:1, reward:1 };
+    state.temp = state.temp ?? { pc:1, hash:1, energyCost:1, reward:1 };
+    state.features = state.features ?? { autoClick:false, noDeficitPenalty:false };
+    state.fork = state.fork ?? { totalForks:0, fp:0, bonusMult:1 };
+    state.owned = state.owned ?? {};
+    state.ui = state.ui ?? { tab:"click" };
+    state.log = state.log ?? [];
+    state.ach = state.ach ?? { unlocked:{} };
+    state.spec = state.spec ?? { eng:{a:0,b:0,c:0}, max:{a:0,b:0,c:0} };
+
+    // timestamps
+    state.lastTick = Date.now();
+    state.lastSave = Date.now();
+  }
+
+
+  const btnOpenSettings = $("btnOpenSettings");
+const btnCloseSettings = $("btnCloseSettings");
+const settingsModal = $("settingsModal");
+
+if(btnOpenSettings){
+  btnOpenSettings.addEventListener("click", (e)=>{
+    e.preventDefault();
+    openSettings();
+  });
+}
+
+if(btnCloseSettings){
+  btnCloseSettings.addEventListener("click", (e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    closeSettings();
+  });
+}
+
+// ✅ fecha clicando fora do card (no fundo escuro)
+if(settingsModal){
+  settingsModal.addEventListener("click", (e)=>{
+    if(e.target === settingsModal){
+      closeSettings();
+    }
+  });
+}
+
+// ✅ segurança extra: qualquer elemento com data-close="settings"
+document.querySelectorAll('[data-close="settings"]').forEach(el=>{
+  el.addEventListener("click", (e)=>{
+    e.preventDefault();
+    closeSettings();
+  });
+});
+
+  // FX UI
+  const btnSound = $("btnSound");
+  const vol = $("vol");
+  if(btnSound && vol){
+    btnSound.textContent = `Som: ${AUDIO.enabled ? "ON" : "OFF"}`;
+    vol.value = String(Math.round(AUDIO.volume * 100));
+
+    btnSound.addEventListener("click", ()=>{
+      AUDIO.enabled = !AUDIO.enabled;
+      btnSound.textContent = `Som: ${AUDIO.enabled ? "ON" : "OFF"}`;
+      saveAudio();
+      if(AUDIO.enabled) playSound("click");
+    });
+
+    vol.addEventListener("input", ()=>{
+      AUDIO.volume = clamp(Number(vol.value) / 100, 0, 1);
+      applyAudioSettings();
+      saveAudio();
+    });
+  }
+
+  // Music UI
+  const btnMusic = $("btnMusic");
+  const musicVol = $("musicVol");
+  if(btnMusic && musicVol){
+    btnMusic.textContent = `Música: ${MUSIC.enabled ? "ON" : "OFF"}`;
+    musicVol.value = String(Math.round(MUSIC.volume * 100));
+
+    btnMusic.addEventListener("click", async ()=>{
+      MUSIC.enabled = !MUSIC.enabled;
+      btnMusic.textContent = `Música: ${MUSIC.enabled ? "ON" : "OFF"}`;
+      saveMusic();
+
+      if(MUSIC.enabled){
+        await startMusic();
+        if(AUDIO.enabled) playSound("click");
+      }else{
+        stopMusic();
+      }
+    });
+
+    musicVol.addEventListener("input", ()=>{
+      MUSIC.volume = clamp(Number(musicVol.value) / 100, 0, 1);
+      applyMusicSettings();
+      saveMusic();
+    });
+  }
+
+  // A11y UI
+  const btnContrast = $("btnContrast");
+  const btnMotion = $("btnMotion");
+
+  if(btnContrast){
+    btnContrast.textContent = `Contraste: ${ACCESS.highContrast ? "ON" : "OFF"}`;
+    btnContrast.addEventListener("click", ()=>{
+      ACCESS.highContrast = !ACCESS.highContrast;
+      btnContrast.textContent = `Contraste: ${ACCESS.highContrast ? "ON" : "OFF"}`;
+      applyAccess();
+      saveAccess();
+      playSound("click");
+    });
+  }
+
+  if(btnMotion){
+    btnMotion.textContent = `Motion: ${ACCESS.reduceMotion ? "OFF" : "ON"}`;
+    btnMotion.addEventListener("click", ()=>{
+      ACCESS.reduceMotion = !ACCESS.reduceMotion;
+      btnMotion.textContent = `Motion: ${ACCESS.reduceMotion ? "OFF" : "ON"}`;
+      applyAccess();
+      saveAccess();
+      playSound("click");
+    });
+  }
+
+  // reset stats
+  const btnResetStats = $("btnResetStats");
+  if(btnResetStats){
+    btnResetStats.addEventListener("click", ()=>{
+      if(confirm("Zerar estatísticas? (isso não apaga seu save)")){
+        stats = freshStats();
+        saveStats();
+        toast("Stats zeradas");
+        renderUI();
+      }
+    });
+  }
+
+  // tabs
+  document.querySelectorAll(".tab").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      document.querySelectorAll(".tab").forEach(b=> b.classList.remove("active"));
+      btn.classList.add("active");
+      state.ui.tab = btn.dataset.tab;
+      renderShop();
+    });
+  });
+
+  // mine
+  if($("btnMine")) $("btnMine").addEventListener("click", clickMine);
+
+  // reset run
+  if($("btnReset")) $("btnReset").addEventListener("click", ()=>{
+    localStorage.removeItem(SAVE.SAVE_KEY);
+    state = freshState();
+    clearTemp();
+    stats.runSeconds = 0;
+    saveStats();
+    renderShop();
+    renderUI();
+    toast("Resetado");
+  });
+
+  // export/import
+  if($("btnExport")) $("btnExport").addEventListener("click", async ()=>{
+    const raw = SAVE.exportSave() || "";
+    if(!raw){
+      toast("Nada para exportar.");
+      playSound("error");
+      return;
+    }
+    try{
+      await navigator.clipboard.writeText(raw);
+      toast("Save copiado");
+    }catch{
+      prompt("Copie seu save:", raw);
+    }
+  });
+
+  if($("btnImport")) $("btnImport").addEventListener("click", ()=>{
+    const raw = prompt("Cole seu save aqui:");
+    if(!raw) return;
+    const ok = SAVE.importSave(raw);
+    if(!ok){
+      toast("Save inválido");
+      playSound("error");
+      return;
+    }
+    const loaded = SAVE.loadGame();
+    if(loaded && loaded.s){
+      state = Object.assign(freshState(), loaded.s);
+      state.mult = state.mult ?? { pc:1, hash:1, energy:1, difficulty:1, reward:1 };
+      state.temp = state.temp ?? { pc:1, hash:1, energyCost:1, reward:1 };
+      state.features = state.features ?? { autoClick:false, noDeficitPenalty:false };
+      state.fork = state.fork ?? { totalForks:0, fp:0, bonusMult:1 };
+      state.owned = state.owned ?? {};
+      state.ui = state.ui ?? { tab:"click" };
+      state.log = state.log ?? [];
+      state.ach = state.ach ?? { unlocked:{} };
+      state.spec = state.spec ?? { eng:{a:0,b:0,c:0}, max:{a:0,b:0,c:0} };
+      state.lastTick = Date.now();
+      state.lastSave = Date.now();
+    }
+    toast("Save importado");
+    clearTemp();
+    renderShop();
+    renderUI();
+  });
+
+  // hard fork
+  if($("btnFork")) $("btnFork").addEventListener("click", ()=>{
+    if(!canFork()){
+      toast("Ainda não disponível.");
+      playSound("error");
+      return;
+    }
+
+    stats.totalForks += 1;
+    stats.bestRunBlocks = Math.max(stats.bestRunBlocks, state.blocksMined);
+    saveStats();
+
+    const fpNow = calcFP(state.blocksMined);
+    const bonus = 1 + fpNow * CONFIG.fork.bonusPerFP;
+    pushLog(`🧨 Hard Fork executado (+bônus permanente)`);
+
+    const keepFork = {
+      totalForks: state.fork.totalForks + 1,
+      fp: state.fork.fp + fpNow,
+      bonusMult: state.fork.bonusMult * bonus,
+    };
+
+    // ✅ mantém especialização
+    const keepSpec = state.spec;
+
+    state = freshState();
+    state.fork = keepFork;
+    state.spec = keepSpec;
+
+    state.sat = 50;
+    stats.runSeconds = 0;
+    saveStats();
+
+    clearTemp();
+    renderShop();
+    renderUI();
+    renderSpec();
+
+    pushLog(`✅ Nova run iniciada (Forks: ${state.fork.totalForks})`);
+    toast("Hard Fork concluído");
+  });
+
+  // modal Solo/Pool
+  if($("btnSolo")) $("btnSolo").addEventListener("click", () => applyPathChoice("solo"));
+  if($("btnPool")) $("btnPool").addEventListener("click", () => applyPathChoice("pool"));
+
+  // log
+  if($("btnClearLog")) $("btnClearLog").addEventListener("click", ()=>{
+    state.log = [];
+    toast("Log limpo");
+    renderLog();
+  });
+
+  // keyboard shortcuts + ESC closes modals
+  window.addEventListener("keydown", (e)=>{
+    if(e.repeat) return;
+
+    const key = e.key.toLowerCase();
+
+    if(key === "escape"){
+      if(!$("settingsModal")?.hidden) closeSettings();
+      if(!$("choiceModal")?.hidden) closeChoiceModal();
+      return;
+    }
+
+    switch(key){
+      case " ":
+        e.preventDefault();
+        clickMine();
+        break;
+      case "b": {
+        const btn = document.querySelector(".shop-item .btn.primary");
+        if(btn) btn.click();
+        break;
+      }
+      case "m": {
+        const bm = $("btnMusic");
+        if(bm) bm.click();
+        break;
+      }
+    }
+  });
+
+  // load save
+  const loaded = SAVE.loadGame();
+  if(loaded){
+    state = loaded.s;
+
+    state.lastTick = Date.now();
+    state.lastSave = Date.now();
+    state.lastAutoClick = state.lastAutoClick ?? Date.now();
+    state.ui = state.ui ?? { tab:"click" };
+    state.features = state.features ?? { autoClick:false, noDeficitPenalty:false };
+    state.temp = state.temp ?? { pc:1, hash:1, energyCost:1, reward:1 };
+    state.mult = state.mult ?? { pc:1, hash:1, energy:1, difficulty:1, reward:1 };
+    state.fork = state.fork ?? { totalForks:0, fp:0, bonusMult:1 };
+    state.spec = state.spec ?? { eng:{a:0,b:0,c:0}, max:{a:0,b:0,c:0} };
+    state.log = state.log ?? [];
+    state.ach = state.ach ?? { unlocked:{} };
+    state.path = state.path ?? null;
+
+    clearTemp();
+    applyOfflineProgress(loaded);
+  }else{
+    SAVE.saveGame(state);
+  }
+
+  clearTemp();
+  renderShop();
+  renderUI();
+  renderSpec();
+
+  if(state.log.length === 0) pushLog("🟢 Início da sessão");
+  requestAnimationFrame(loop);
+}
+
+// ============================================
+// HOTFIX: Settings modal fecha no X / fundo / ESC
+// (usa pointerdown + capture pra não ser bloqueado)
+// ============================================
+(function settingsCloseHotfix(){
+  const getModal = () => document.getElementById("settingsModal");
+
+  const close = () => {
+    const m = getModal();
+    if(!m) return;
+    m.hidden = true;
+    document.body.style.overflow = "";
+  };
+
+  const open = () => {
+    const m = getModal();
+    if(!m) return;
+    m.hidden = false;
+    document.body.style.overflow = "hidden";
+  };
+
+  // abrir no ⚙️
+  document.addEventListener("pointerdown", (e)=>{
+    const openBtn = e.target.closest("#btnOpenSettings");
+    if(openBtn){
+      e.preventDefault();
+      open();
+    }
+  }, true); // ✅ capture
+
+  // fechar no X
+  document.addEventListener("pointerdown", (e)=>{
+    const closeBtn = e.target.closest('[data-close-modal="settings"]');
+    if(closeBtn){
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+    }
+  }, true); // ✅ capture
+
+  // fechar clicando no fundo (backdrop)
+  document.addEventListener("pointerdown", (e)=>{
+    const m = getModal();
+    if(!m || m.hidden) return;
+    if(e.target === m) close();
+  }, true); // ✅ capture
+
+  // ESC fecha
+  document.addEventListener("keydown", (e)=>{
+    if(e.key !== "Escape") return;
+    const m = getModal();
+    if(m && !m.hidden) close();
+  }, true);
+})();
+
+// ============================================
+// A11Y: Contraste (patch seguro)
+// ============================================
+(function contrastPatch(){
+  const KEY = "pos_contrast";
+
+  function $(id){ return document.getElementById(id); }
+
+  function apply(on){
+    document.body.classList.toggle("contrast-on", !!on);
+    const btn = $("btnContrast");
+    if(btn) btn.textContent = `Contraste: ${on ? "ON" : "OFF"}`;
+    localStorage.setItem(KEY, on ? "1" : "0");
+  }
+
+  // boot state
+  const saved = localStorage.getItem(KEY);
+  apply(saved === "1");
+
+  // toggle
+  document.addEventListener("click", (e)=>{
+    const btn = e.target.closest("#btnContrast");
+    if(!btn) return;
+    e.preventDefault();
+    const nowOn = !document.body.classList.contains("contrast-on");
+    apply(nowOn);
+  });
+})();
+
+// ============================================
+// HOTFIX: não travar boot se algum item da loja não tiver apply()
+// + loga qual item está quebrado
+// Cole no FINAL do game.js
+// ============================================
+(function shopApplyGuard(){
+  if (typeof window.simulateUpgradeDelta !== "function") {
+    console.warn("[SHOP GUARD] simulateUpgradeDelta não encontrada.");
+    return;
+  }
+
+  const orig = window.simulateUpgradeDelta;
+
+  window.simulateUpgradeDelta = function(u, qty){
+    try{
+      // se não tem apply, não quebra o jogo — retorna delta neutro
+      if(!u || typeof u.apply !== "function"){
+        console.error("[SHOP GUARD] Item sem apply():", u);
+        return {}; // delta neutro (não altera nada)
+      }
+      return orig.call(this, u, qty);
+    }catch(err){
+      console.error("[SHOP GUARD] Erro em simulateUpgradeDelta para item:", u, err);
+      return {};
+    }
+  };
+})();
+
+
+boot();
+
+// ==================================================
+// PATCH QA — Modo QA (debug para balanceamento)
+// - Toggle em Configurações
+// - Forçar Evento
+// - +10 blocos
+// - +10.000 SAT
+// - Reset Run
+// - Copiar debug
+// ==================================================
+const QA_KEY = "pos_qa_v1";
+const QA = { enabled: false };
+
+function loadQA(){
+  try{
+    const raw = localStorage.getItem(QA_KEY);
+    if(!raw) return;
+    const d = JSON.parse(raw);
+    QA.enabled = !!d.enabled;
+  }catch{}
+}
+function saveQA(){
+  localStorage.setItem(QA_KEY, JSON.stringify(QA));
+}
+
+function qaBuildDebugText(){
+  // usa funções já existentes no game.js
+  const net = satPerSecond() - energyCostPerSecond();
+  const fx = (state.choiceFx || []).map(it => `${it.id} (${it.blocksLeft}b)`).join(", ") || "—";
+
+  const lines = [
+    `Run: ${state.blocksMined} blocos | Progresso: ${state.blockProgress.toFixed(1)}%`,
+    `SAT: ${Math.floor(state.sat)} | BTC: ${(state.sat / CONFIG.SAT_PER_BTC).toFixed(8)}`,
+    `SAT/s bruto: ${satPerSecond().toFixed(2)} | energia/s: ${energyCostPerSecond().toFixed(2)} | líquido: ${net.toFixed(2)}`,
+    `PC base: ${state.pcBase} | PC mult: ${(state.mult.pc * state.temp.pc * state.fork.bonusMult).toFixed(3)} | PC efetivo: ${effectivePc().toFixed(3)}`,
+    `H/s base: ${state.hashBase.toFixed(2)} | H/s mult: ${(state.mult.hash * state.temp.hash * state.fork.bonusMult).toFixed(3)} | H/s efetivo: ${(state.hashBase * state.mult.hash * state.temp.hash * state.fork.bonusMult).toFixed(2)}`,
+    `Dificuldade mult: ${state.mult.difficulty.toFixed(3)} | Reward mult: ${state.mult.reward.toFixed(3)} | Energia mult: ${state.mult.energy.toFixed(3)}`,
+    `Path: ${state.path || "—"} | FP: ${state.fork.fp.toFixed(2)} | Bonus: ${state.fork.bonusMult.toFixed(3)}`,
+    `Choice cooldown até bloco: ${state.choiceCooldownUntilBlock || 0}`,
+    `Efeitos temporários: ${fx}`,
+  ];
+
+  return lines.join("\n");
+}
+
+function qaSyncUI(){
+  const btn = $("btnQA");
+  const tools = $("qaTools");
+  const info = $("qaInfo");
+  if(btn) btn.textContent = `QA: ${QA.enabled ? "ON" : "OFF"}`;
+  if(tools) tools.hidden = !QA.enabled;
+  if(info && QA.enabled) info.textContent = qaBuildDebugText();
+}
+
+function qaForceChoiceEvent(){
+  // força abrir o modal de evento com escolha, ignorando chance/cooldown
+  try{
+    const m = $("eventChoiceModal");
+    if(m && !m.hidden) return;
+
+    // CHOICE_EVENTS e pendingChoiceEvent são globais no game.js atual
+    if(typeof CHOICE_EVENTS === "undefined" || !Array.isArray(CHOICE_EVENTS) || CHOICE_EVENTS.length === 0){
+      toast("Sem eventos carregados.");
+      return;
+    }
+    const ev = CHOICE_EVENTS[Math.floor(Math.random() * CHOICE_EVENTS.length)];
+    pendingChoiceEvent = ev;
+    renderEventChoiceModal(ev);
+    openEventChoiceModal();
+    pushLog(`🧪 QA: Evento forçado (${ev.id})`);
+  }catch(e){
+    console.warn("qaForceChoiceEvent falhou", e);
+  }
+}
+
+function qaMineBlocks(n=10){
+  // mine N blocos rapidamente, sem travar por evento com escolha
+  const oldCooldown = state.choiceCooldownUntilBlock || 0;
+  state.choiceCooldownUntilBlock = (state.blocksMined + n + 9999); // bloqueia choice event durante o loop
+
+  for(let i=0;i<n;i++){
+    // força completar um bloco
+    state.blockProgress = 100;
+    addProgress(0); // addProgress faz o while e chama onBlockMined()
+  }
+  state.choiceCooldownUntilBlock = oldCooldown;
+  pushLog(`🧪 QA: +${n} blocos`);
+  renderShop();
+  renderUI();
+}
+
+function qaResetRun(){
+  // preserva stats globais e preferências
+  const keep = {
+    owned: {},
+    ach: { unlocked:{} },
+  };
+  state = freshState();
+  state.owned = keep.owned;
+  state.ach = keep.ach;
+  stats.runSeconds = 0;
+  toast("Run resetada (QA)");
+  pushLog("🧪 QA: Reset Run");
+  renderShop();
+  renderUI();
+  SAVE.saveGame(state);
+}
+
+function qaCopyDebug(){
+  const txt = qaBuildDebugText();
+  navigator.clipboard?.writeText(txt).then(()=> toast("Debug copiado!")).catch(()=> toast("Não deu pra copiar"));
+}
+
+// Hook no boot: chama loadQA e liga listeners
+(function qaBoot(){
+  const origBoot = boot;
+  window.boot = function(){
+    loadQA();
+    return origBoot.apply(this, arguments);
+  };
+})();
+
+// Hook no initSettingsUI para wire dos botões
+(function qaWire(){
+  const orig = initSettingsUI;
+  window.initSettingsUI = function(){
+    const ret = orig.apply(this, arguments);
+
+    const btnQA = $("btnQA");
+    const btnForce = $("btnForceChoiceEvent");
+    const btnSkip = $("btnSkip10Blocks");
+    const btnAdd = $("btnAddSat");
+    const btnReset = $("btnResetRun");
+    const btnCopy = $("btnCopyDebug");
+
+    btnQA?.addEventListener("click", ()=>{
+      QA.enabled = !QA.enabled;
+      saveQA();
+      qaSyncUI();
+      toast(QA.enabled ? "QA ON" : "QA OFF");
+    });
+
+    btnForce?.addEventListener("click", ()=> qaForceChoiceEvent());
+    btnSkip?.addEventListener("click", ()=> qaMineBlocks(10));
+    btnAdd?.addEventListener("click", ()=>{
+      state.sat += 10000;
+      pushLog("🧪 QA: +10.000 SAT");
+      renderUI();
+      qaSyncUI();
+    });
+    btnReset?.addEventListener("click", ()=> qaResetRun());
+    btnCopy?.addEventListener("click", ()=> qaCopyDebug());
+
+    qaSyncUI();
+    return ret;
+  };
+})();
+
+// Hook renderUI para atualizar painel QA quando ligado
+(function qaRenderHook(){
+  const orig = renderUI;
+  window.renderUI = function(){
+    const r = orig.apply(this, arguments);
+    try{
+      if(QA.enabled){
+        const info = $("qaInfo");
+        if(info) info.textContent = qaBuildDebugText();
+      }
+    }catch{}
+    return r;
+  };
+})();

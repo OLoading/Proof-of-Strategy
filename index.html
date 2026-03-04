@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Proof of Strategy — Hardcore Clicker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./style.css"/>
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-title">Proof of Strategy</div>
+      <div class="brand-sub muted">Hardcore miner clicker • Patch 0.6 (P2)</div>
+    </div>
+
+    <div class="top-actions">
+      <button class="btn ghost" id="btnOpenSettings" title="Configurações">⚙️</button>
+      <div class="save-pill" id="saveInfo">Salvo • —</div>
+    </div>
+  </header>
+
+  
+  <main class="layout">
+    <!-- ROW 1: bloco atual + efeitos/log -->
+    <div class="grid2">
+      <section class="col">
+<div class="panel hero">
+        <div class="hero-stats">
+          <div class="stat">
+            <div class="label muted">Saldo</div>
+            <div class="value"><span id="sat">0</span> <span class="unit">SAT</span></div>
+            <div class="sub muted"><span id="btc">0.00000000</span> BTC</div>
+          </div>
+          <div class="stat">
+            <div class="label muted">Blocos</div>
+            <div class="value"><span id="blocksMined">0</span></div>
+            <div class="sub muted">Próx. halving: <span id="nextHalving">—</span></div>
+          </div>
+          <div class="stat">
+            <div class="label muted">Dificuldade</div>
+            <div class="value"><span id="difficulty">1.00x</span></div>
+            <div class="sub muted">Reward: <span id="blockReward">0</span></div>
+          </div>
+        </div>
+
+        <div class="mine">
+          <button class="btn primary mine-btn" id="btnMine">Minerar</button>
+          <div class="mine-sub muted" id="mineSub">Clique para minerar. Hardcore pune prejuízo (SAT &lt; 0).</div>
+
+          <div class="progress">
+            <div class="progress-top">
+              <div class="muted small">Progresso do bloco</div>
+              <div class="muted small"><span id="blockPct">0.0</span>%</div>
+            </div>
+            <div class="bar">
+              <div class="bar-fill" id="progressBar" style="width:0%"></div>
+            </div>
+          </div>
+
+          <div class="mini-grid">
+            <div class="mini">
+              <div class="muted small">PC</div>
+              <div class="mono"><span id="pc">0</span> <span class="muted">| efetivo</span> <span id="pcEffective">0</span></div>
+            </div>
+            <div class="mini">
+              <div class="muted small">H/s</div>
+              <div class="mono"><span id="hashrate">0</span> • <span class="muted">SAT/s</span> <span id="cpsSat">0</span></div>
+            </div>
+            <div class="mini">
+              <div class="muted small">Energia</div>
+              <div class="mono"><span id="energy">0</span> • <span class="muted">custo/s</span> <span id="energyCost">0</span></div>
+            </div>
+          </div>
+
+          <div class="tags">
+            <span class="pill warn" id="profitTag" hidden>⚠️ Prejuízo (SAT&lt;0): penalidade ativa</span>
+            <span class="pill" id="eventTag" hidden>🎲 Evento ativo</span>
+            <span class="pill ok" id="bestRunTag">🏁 Best run: <span id="statRunBlocks">0</span> blocos</span>
+          </div>
+        </div>
+      </div>
+      </section>
+      <section class="col">
+<!-- Effects HUD -->
+      <div class="panel" id="fxPanel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">Efeitos Ativos</div>
+            <div class="muted small" id="fxHint">Eventos temporários e permanentes</div>
+          </div>
+        </div>
+        <div id="fxList" class="fx-list"></div>
+      </div>
+
+      <!-- Log -->
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">Log de rede</div>
+            <div class="muted small">Eventos, halvings, compras</div>
+          </div>
+          <button class="btn ghost" id="btnClearLog">Limpar</button>
+        </div>
+        <div id="logList" class="log"></div>
+      </div>
+      </section>
+    </div>
+
+    <!-- ROW 2: loja + conquistas -->
+    <div class="grid2">
+      <section class="col">
+<div class="panel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">Loja</div>
+            <div class="muted small">Com ROI real estimado (quando aplicável)</div>
+          </div>
+          <div class="tabs">
+            <button class="tab active" data-tab="click">Clique</button>
+            <button class="tab" data-tab="machines">Máquinas</button>
+            <button class="tab" data-tab="eff">Eficiência</button>
+            <button class="tab" data-tab="net">Rede</button>
+          </div>
+        </div>
+        <div id="shopList"></div>
+      </div>
+      </section>
+      <section class="col">
+<!-- Achievements -->
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">Conquistas</div>
+            <div class="muted small"><span id="achCount">0/0</span></div>
+          </div>
+        </div>
+        <div id="achList" class="ach-list"></div>
+      </div>
+      </section>
+    </div>
+
+    <!-- ROW 3: hard fork/spec + stats -->
+    <div class="grid2">
+      <section class="col">
+<!-- Fork / Spec -->
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">Hard Fork</div>
+            <div class="muted small">Bônus por FP (hardcore)</div>
+          </div>
+          <button class="btn" id="btnFork">Hard Fork</button>
+        </div>
+        <div class="fork-grid">
+          <div class="mini">
+            <div class="muted small">FP</div>
+            <div class="mono"><span id="fp">0</span></div>
+          </div>
+          <div class="mini">
+            <div class="muted small">Bônus</div>
+            <div class="mono"><span id="forkBonus">0%</span></div>
+          </div>
+          <div class="mini">
+            <div class="muted small">Spec disponíveis</div>
+            <div class="mono"><span id="specAvail">0</span></div>
+          </div>
+        </div>
+
+        <div class="spec-wrap">
+          <div class="spec-col">
+            <div class="spec-head">Engineer <span class="muted small">(FP: <span id="specFP">0</span>)</span></div>
+            <div id="specEngineer"></div>
+          </div>
+          <div class="spec-col">
+            <div class="spec-head">Maximalist</div>
+            <div id="specMaxi"></div>
+          </div>
+        </div>
+      </div>
+      </section>
+      <section class="col">
+<!-- Stats -->
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">Stats</div>
+            <div class="muted small">Tempo / cliques / forks</div>
+          </div>
+        </div>
+        <div class="stats-grid">
+          <div class="mini"><div class="muted small">Total</div><div class="mono" id="statTotalTime">—</div></div>
+          <div class="mini"><div class="muted small">Run</div><div class="mono" id="statRunTime">—</div></div>
+          <div class="mini"><div class="muted small">Cliques</div><div class="mono" id="statClicks">—</div></div>
+          <div class="mini"><div class="muted small">Forks</div><div class="mono" id="statForks">—</div></div>
+          <div class="mini"><div class="muted small">Pico SAT</div><div class="mono" id="statPeakSat">—</div></div>
+        </div>
+
+        <div class="actions">
+          <button class="btn" id="btnExport">Exportar Save</button>
+          <button class="btn" id="btnImport">Importar Save</button>
+          <button class="btn danger" id="btnReset">Resetar Run</button>
+        </div>
+      </div>
+      </section>
+    </div>
+  </main>
+
+
+  <!-- Toast -->
+  <div id="toast" class="toast" hidden></div>
+
+  <!-- Solo/Pool choice -->
+  <div class="modal" id="choiceModal" hidden>
+    <div class="modal-card">
+      <div class="modal-title">Escolha irreversível</div>
+      <div class="modal-sub muted">No bloco 100, você define sua build: <b>Solo</b> ou <b>Pool</b>.</div>
+      <div class="choice-grid">
+        <div class="choice">
+          <div class="choice-name">Solo</div>
+          <ul class="choice-list">
+            <li>+RB (recompensa)</li>
+            <li>+D (dificuldade)</li>
+            <li>Hardcore: mais variância</li>
+          </ul>
+          <button class="btn primary" id="btnSolo">Escolher Solo</button>
+        </div>
+        <div class="choice">
+          <div class="choice-name">Pool</div>
+          <ul class="choice-list">
+            <li>-D (dificuldade)</li>
+            <li>-RB (recompensa)</li>
+            <li>Mais estável</li>
+          </ul>
+          <button class="btn" id="btnPool">Escolher Pool</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div class="modal" id="settingsModal" hidden>
+    <div class="modal-card">
+      <div class="settings-head">
+        <div>
+          <div class="modal-title">Configurações</div>
+          <div class="modal-sub muted">Som, música e acessibilidade</div>
+        </div>
+        <button class="btn ghost" id="btnCloseSettings">✕</button>
+      </div>
+
+      <div class="settings-grid">
+        <div class="settings-row">
+          <button class="btn" id="btnSound">Som: ON</button>
+          <div class="slider">
+            <div class="muted small">Volume FX</div>
+            <input type="range" id="vol" min="0" max="100" value="60">
+          </div>
+        </div>
+
+        <div class="settings-row">
+          <button class="btn" id="btnMusic">Música: OFF</button>
+          <div class="slider">
+            <div class="muted small">Volume Música</div>
+            <input type="range" id="musicVol" min="0" max="100" value="25">
+          </div>
+        </div>
+
+        <div class="settings-row">
+          <button class="btn" id="btnContrast">Contraste: OFF</button>
+          <button class="btn" id="btnMotion">Motion: ON</button>
+          <button class="btn danger" id="btnResetStats">Reset Stats</button>
+          <button class="btn" id="btnQA">QA: OFF</button>
+        
+        <div class="settings-hr"></div>
+
+        <div id="qaTools" class="qa-tools" hidden>
+          <div class="muted small" style="margin-bottom:8px">Modo QA (debug)</div>
+
+          <div class="qa-row">
+            <button class="btn" id="btnForceChoiceEvent">Forçar Evento</button>
+            <button class="btn" id="btnSkip10Blocks">+10 blocos</button>
+            <button class="btn" id="btnAddSat">+10.000 SAT</button>
+          </div>
+
+          <div class="qa-row">
+            <button class="btn danger" id="btnResetRun">Reset Run</button>
+            <button class="btn" id="btnCopyDebug">Copiar Debug</button>
+          </div>
+
+          <pre id="qaInfo" class="qa-info"></pre>
+        </div>
+</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Choice Event Modal -->
+  <div class="modal" id="eventChoiceModal" hidden>
+    <div class="modal-card">
+      <div class="settings-head" style="margin-bottom:10px">
+        <div>
+          <div class="modal-title" id="evTitle">Evento</div>
+          <div class="modal-sub muted" id="evDesc">Descrição</div>
+        </div>
+        <button class="btn ghost" id="btnCloseEventChoice">✕</button>
+      </div>
+
+      <div class="choice-grid">
+        <div class="choice">
+          <div class="choice-head">
+            <div class="choice-name" id="evAName">Opção A</div>
+            <div class="choice-tag" id="evATag">trade-off</div>
+          </div>
+          <ul class="choice-list" id="evAList"></ul>
+          <button class="btn primary" id="evAButton">Escolher A</button>
+        </div>
+
+        <div class="choice">
+          <div class="choice-head">
+            <div class="choice-name" id="evBName">Opção B</div>
+            <div class="choice-tag" id="evBTag">trade-off</div>
+          </div>
+          <ul class="choice-list" id="evBList"></ul>
+          <button class="btn" id="evBButton">Escolher B</button>
+        </div>
+      </div>
+
+      <div class="muted small" style="margin-top:12px">
+        Hardcore pune decisões ruins — mas as boas builds ficam fortes.
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="./config.js"></script>
+  <script src="./upgrades.js"></script>
+  <script src="./save.js"></script>
+  <script src="./game.js"></script>
+
+</body>
+</html>
