@@ -182,7 +182,8 @@ function freshStats(){
     totalClicks: 0,
     bestRunBlocks: 0,
     totalForks: 0,
-    peakSat: 0
+    peakSat: 0,
+    totalEvents: 0,   // Patch 0.7 — para conquista event_veteran
   };
 }
 let stats = freshStats();
@@ -246,6 +247,9 @@ function freshState(){
     choiceLastBlock: 0,
     choiceCooldownUntilBlock: 0,
 
+    // PATCH 0.7 — flags de conquistas
+    hadNegativeSat: false,   // true quando SAT já ficou < 0 nessa run
+
     lastTick: Date.now(),
     lastSave: Date.now(),
     lastAutoClick: Date.now(),
@@ -275,12 +279,39 @@ function saveAch(){
 }
 
 const ACHIEVEMENTS = [
-  { id:"first_block", name:"Primeiro bloco", desc:"Valide 1 bloco.", check:(s)=> s.blocksMined >= 1 },
-  { id:"ten_blocks", name:"Dez blocos", desc:"Valide 10 blocos.", check:(s)=> s.blocksMined >= 10 },
-  { id:"first_halving", name:"Primeiro Halving", desc:"Chegue ao primeiro halving (75 blocos).", check:(s)=> s.blocksMined >= 75 },
-  { id:"choice_made", name:"Decisão tomada", desc:"Escolha Solo ou Pool no bloco 100.", check:(s)=> !!s.path },
-  { id:"one_btc", name:"1 BTC acumulado", desc:"Chegue a 1 BTC em SAT (saldo atual).", check:(s)=> s.sat >= CONFIG.SAT_PER_BTC },
-  { id:"fork_ready", name:"Pronto pro Fork", desc:"Desbloqueie Hard Fork (200 blocos).", check:(s)=> s.blocksMined >= CONFIG.fork.minBlocks },
+  // === Blocos ===
+  { id:"first_block",   name:"Primeiro Bloco",      desc:"Valide seu primeiro bloco na chain.",          check:(s)=> s.blocksMined >= 1 },
+  { id:"ten_blocks",    name:"Dez Blocos",           desc:"Valide 10 blocos.",                            check:(s)=> s.blocksMined >= 10 },
+  { id:"blocks_25",     name:"Minerador em Série",   desc:"Valide 25 blocos seguidos.",                   check:(s)=> s.blocksMined >= 25 },
+  { id:"first_halving", name:"Primeiro Halving",     desc:"Chegue ao primeiro halving (75 blocos).",      check:(s)=> s.blocksMined >= 75 },
+  { id:"blocks_150",    name:"Mineiro Sério",        desc:"Valide 150 blocos.",                           check:(s)=> s.blocksMined >= 150 },
+  { id:"fork_ready",    name:"Pronto pro Fork",      desc:"Desbloqueie o Hard Fork (200 blocos).",        check:(s)=> s.blocksMined >= CONFIG.fork.minBlocks },
+  { id:"blocks_500",    name:"Veterano da Chain",    desc:"Valide 500 blocos. Você está comprometido.",   check:(s)=> s.blocksMined >= 500 },
+
+  // === Riqueza ===
+  { id:"sat_10k",   name:"Primeiros 10K",      desc:"Acumule 10.000 SAT de saldo.",                  check:(s)=> s.sat >= 10_000 },
+  { id:"sat_100k",  name:"Centena K",          desc:"Acumule 100.000 SAT de saldo.",                 check:(s)=> s.sat >= 100_000 },
+  { id:"sat_500k",  name:"Meio Milhão",        desc:"Acumule 500.000 SAT de saldo.",                 check:(s)=> s.sat >= 500_000 },
+  { id:"one_btc",   name:"1 BTC Acumulado",    desc:"Chegue a 1 BTC em SAT (saldo atual).",          check:(s)=> s.sat >= CONFIG.SAT_PER_BTC },
+
+  // === Hard Fork ===
+  { id:"choice_made", name:"Decisão Tomada",   desc:"Escolha Solo ou Pool no bloco 100.",            check:(s)=> !!s.path },
+  { id:"first_fork",  name:"Hard Forker",      desc:"Execute seu primeiro Hard Fork.",               check:(s)=> (s.fork?.totalForks ?? 0) >= 1 },
+  { id:"fork_5",      name:"Multiverse",       desc:"Execute 5 Hard Forks. A chain nunca acaba.",   check:(s)=> (s.fork?.totalForks ?? 0) >= 5 },
+
+  // === Cliques ===
+  { id:"click_100",  name:"Clicador Iniciante", desc:"100 cliques registrados.",                     check:()=> stats.totalClicks >= 100 },
+  { id:"click_1k",   name:"Clicador Hardcore",  desc:"1.000 cliques registrados.",                  check:()=> stats.totalClicks >= 1_000 },
+  { id:"click_10k",  name:"Lenda do Mouse",     desc:"10.000 cliques. Seus dedos agradecem.",       check:()=> stats.totalClicks >= 10_000 },
+
+  // === Upgrades & Spec ===
+  { id:"upgrades_5",  name:"Comprador Técnico",   desc:"Compre 5 upgrades no total.",               check:(s)=> Object.values(s.owned||{}).reduce((a,b)=>a+(b||0),0) >= 5 },
+  { id:"upgrades_10", name:"Arsenal Completo",    desc:"Compre 10 upgrades no total.",              check:(s)=> Object.values(s.owned||{}).reduce((a,b)=>a+(b||0),0) >= 10 },
+  { id:"first_spec",  name:"Especialista",        desc:"Desbloqueie o primeiro perk de especialização.", check:(s)=>{ const e=Object.values(s.spec?.eng||{}).reduce((a,b)=>a+(b||0),0); const m=Object.values(s.spec?.max||{}).reduce((a,b)=>a+(b||0),0); return e+m >= 1; } },
+
+  // === Eventos & Sobrevivência ===
+  { id:"event_veteran",    name:"Veterano de Eventos",  desc:"Sobreviva a 10 eventos na rede.",      check:()=> (stats.totalEvents||0) >= 10 },
+  { id:"deficit_survivor", name:"Sobrevivente",         desc:"Recupere seu saldo depois de ficar negativo (SAT < 0).", check:(s)=> s.hadNegativeSat && s.sat > 0 },
 ];
 
 function pushLog(msg){
@@ -568,11 +599,15 @@ function startEvent(ev){
   toast(ev.name);
   playSound("event");
   pushLog(`✨ Evento: ${ev.name}`);
+  stats.totalEvents = (stats.totalEvents || 0) + 1;
 
   if(ev.id === "lucky"){
     state.activeEvent = null;
     setTimeout(()=>{ if($("eventTag")) $("eventTag").hidden = true; }, 1200);
   }
+  // A3: inicia chuva de ₿ durante Bull Run
+  if(ev.id === "bull") startBitcoinRain();
+  else stopBitcoinRain();
 }
 function maybeTriggerEvent(){
   if(Math.random() >= CONFIG.block.eventChancePerBlock) return;
@@ -584,9 +619,12 @@ function maybeTriggerEvent(){
 function updateEvent(){
   if(!state.activeEvent) return;
   if(Date.now() >= state.activeEvent.endsAt){
+    const wasRain = state.activeEvent.id === "bull";
     state.activeEvent = null;
     clearTemp();
     if($("eventTag")) $("eventTag").hidden = true;
+    // A3: para rain quando Bull Run termina
+    if(wasRain) stopBitcoinRain();
     pushLog("⏱️ Evento terminou");
     toast("Evento terminou");
   }
@@ -961,6 +999,50 @@ function onBlockMined(){
   }
 }
 
+// ==================================================
+// PATCH 0.7 — A2: Partículas flutuantes ₿
+// ==================================================
+function spawnParticle(x, y){
+  if(ACCESS.reduceMotion) return;
+  const canvas = $("particleCanvas");
+  if(!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  const el = document.createElement("span");
+  el.className = "btc-particle";
+  el.textContent = "₿";
+  const dx = (Math.random() - 0.5) * 80;
+  const dy = -(40 + Math.random() * 60);
+  const rot = (Math.random() - 0.5) * 40 + "deg";
+  const dur = (0.6 + Math.random() * 0.5) + "s";
+  el.style.cssText = `left:${x - rect.left}px;top:${y - rect.top}px;--dx:${dx}px;--dy:${dy}px;--rot:${rot};--dur:${dur};`;
+  canvas.appendChild(el);
+  el.addEventListener("animationend", ()=> el.remove(), { once:true });
+}
+
+// ==================================================
+// PATCH 0.7 — A3: Bitcoin rain durante Bull Run
+// ==================================================
+let _rainInterval = null;
+function startBitcoinRain(){
+  if(ACCESS.reduceMotion) return;
+  stopBitcoinRain();
+  _rainInterval = setInterval(()=>{
+    const el = document.createElement("span");
+    el.className = "rain-coin";
+    el.textContent = "₿";
+    el.style.left = (Math.random() * 100) + "vw";
+    el.style.animationDuration = (2.5 + Math.random() * 3) + "s";
+    el.style.fontSize = (14 + Math.random() * 14) + "px";
+    el.style.opacity = (0.4 + Math.random() * 0.5);
+    document.body.appendChild(el);
+    el.addEventListener("animationend", ()=> el.remove(), { once:true });
+  }, 280);
+}
+function stopBitcoinRain(){
+  if(_rainInterval){ clearInterval(_rainInterval); _rainInterval = null; }
+  document.querySelectorAll(".rain-coin").forEach(el => el.remove());
+}
+
 function clickMine(){
   stats.totalClicks += 1;
 
@@ -971,10 +1053,13 @@ function clickMine(){
   playSound("click");
   if(MUSIC.enabled) startMusic();
 
+  // A2: partícula no botão
   const bm = $("btnMine");
   if(bm){
-    bm.style.transform = "translateY(1px)";
-    setTimeout(()=> bm.style.transform = "", 60);
+    const r = bm.getBoundingClientRect();
+    spawnParticle(r.left + r.width/2, r.top + r.height/2);
+    bm.style.transform = "translateY(1px) scale(.97)";
+    setTimeout(()=> bm.style.transform = "", 80);
   }
 }
 
@@ -986,6 +1071,7 @@ function update(dt){
   if(state.sat > stats.peakSat) stats.peakSat = state.sat;
 
   const deficit = state.sat < 0;
+  if(deficit && !state.hadNegativeSat) state.hadNegativeSat = true;
   if($("profitTag")) $("profitTag").hidden = !deficit;
 
   const D = currentDifficulty();
@@ -1087,6 +1173,9 @@ function renderUI(){
 
   if($("blockPct")) $("blockPct").textContent = fmt(state.blockProgress, 1);
   if($("progressBar")) $("progressBar").style.width = `${clamp(state.blockProgress, 0, 100)}%`;
+  // A4: pulso visual quando progresso > 85%
+  const wrap = $("progressBarWrap");
+  if(wrap) wrap.classList.toggle("near-complete", state.blockProgress >= 85);
 
   if($("blocksMined")) $("blocksMined").textContent = fmt(state.blocksMined, 0);
   if($("nextHalving")) $("nextHalving").textContent = fmt(nextHalvingIn(), 0);

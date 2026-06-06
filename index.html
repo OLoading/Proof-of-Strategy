@@ -48,15 +48,23 @@
         </div>
 
         <div class="mine">
-          <button class="btn primary mine-btn" id="btnMine">Minerar</button>
+          <!-- A1: Botão ₿ -->
+          <button class="btn primary mine-btn" id="btnMine">
+            <span class="mine-btc-icon">₿</span>
+            <span class="mine-label">Minerar</span>
+          </button>
           <div class="mine-sub muted" id="mineSub">Clique para minerar. Hardcore pune prejuízo (SAT &lt; 0).</div>
+
+          <!-- A2: container de partículas -->
+          <div id="particleCanvas" class="particle-canvas"></div>
 
           <div class="progress">
             <div class="progress-top">
               <div class="muted small">Progresso do bloco</div>
               <div class="muted small"><span id="blockPct">0.0</span>%</div>
             </div>
-            <div class="bar">
+            <!-- A4: bar-fill ganha classe "near-complete" via JS quando >85% -->
+            <div class="bar" id="progressBarWrap">
               <div class="bar-fill" id="progressBar" style="width:0%"></div>
             </div>
           </div>
@@ -274,8 +282,9 @@
           <button class="btn" id="btnMotion">Motion: ON</button>
           <button class="btn danger" id="btnResetStats">Reset Stats</button>
           <button class="btn" id="btnQA">QA: OFF</button>
-        
-        <div class="settings-hr"></div>
+        </div>
+
+        <div class="settings-section-sep"></div>
 
         <div id="qaTools" class="qa-tools" hidden>
           <div class="muted small" style="margin-bottom:8px">Modo QA (debug)</div>
@@ -293,7 +302,6 @@
 
           <pre id="qaInfo" class="qa-info"></pre>
         </div>
-</div>
       </div>
     </div>
   </div>

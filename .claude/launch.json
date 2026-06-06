@@ -2,10 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "pos-static",
+      "name": "pos-patch07",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["-y", "serve", "-l", "5050", "."],
-      "port": 5050
+      "runtimeArgs": ["-y", "serve", "-l", "5051", "."],
+      "port": 5051
     }
   ]
 }
