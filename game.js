@@ -459,14 +459,16 @@ function buySpec(tree, id){
 // PATCH 0.6 P2 — Choice FX (multiplicadores temporários por blocos)
 // ==================================================
 function choiceFxMults(){
-  const m = { pcMul:1, difficultyMul:1, energyCostMul:1, satRateMul:1 };
+  // Patch 0.7: adicionado hashMul para evento mining_competition
+  const m = { pcMul:1, hashMul:1, difficultyMul:1, energyCostMul:1, satRateMul:1 };
   const list = Array.isArray(state.choiceFx) ? state.choiceFx : [];
   for(const it of list){
     const fx = it.fx || {};
-    if(typeof fx.pcMul === "number") m.pcMul *= fx.pcMul;
+    if(typeof fx.pcMul         === "number") m.pcMul         *= fx.pcMul;
+    if(typeof fx.hashMul       === "number") m.hashMul       *= fx.hashMul;
     if(typeof fx.difficultyMul === "number") m.difficultyMul *= fx.difficultyMul;
     if(typeof fx.energyCostMul === "number") m.energyCostMul *= fx.energyCostMul;
-    if(typeof fx.satRateMul === "number") m.satRateMul *= fx.satRateMul;
+    if(typeof fx.satRateMul    === "number") m.satRateMul    *= fx.satRateMul;
   }
   return m;
 }
@@ -502,7 +504,8 @@ function pcValue(){
   return state.pcBase * state.mult.pc * state.temp.pc * state.fork.bonusMult * fx.pcMul;
 }
 function hashValue(deficit){
-  const h = state.hashBase * state.mult.hash * state.temp.hash * state.fork.bonusMult;
+  const fx = choiceFxMults();
+  const h = state.hashBase * state.mult.hash * state.temp.hash * state.fork.bonusMult * fx.hashMul;
   if(deficit && !state.features.noDeficitPenalty) return h * CONFIG.energy.deficitPenaltyHashrateMult;
   return h;
 }
@@ -585,10 +588,11 @@ function clearTemp(){
 function reapplyActiveEvent(){
   if(!state.activeEvent) return;
   const ev = EVENTS.find(e => e.id === state.activeEvent.id);
-  if(ev && ev.id !== "lucky") ev.start(state);
+  // Patch 0.7: usa dur>0 em vez de id!=="lucky" — cobre todos os instantâneos
+  if(ev && ev.dur > 0) ev.start(state);
 }
 function startEvent(ev){
-  if(ev.id !== "lucky"){
+  if(ev.dur > 0){
     state.activeEvent = { id: ev.id, endsAt: Date.now() + ev.dur * 1000 };
   }
   ev.start(state);
@@ -601,11 +605,12 @@ function startEvent(ev){
   pushLog(`✨ Evento: ${ev.name}`);
   stats.totalEvents = (stats.totalEvents || 0) + 1;
 
-  if(ev.id === "lucky"){
+  // Instantâneo: limpa activeEvent e esconde tag após 1.2s
+  if(ev.dur === 0){
     state.activeEvent = null;
     setTimeout(()=>{ if($("eventTag")) $("eventTag").hidden = true; }, 1200);
   }
-  // A3: inicia chuva de ₿ durante Bull Run
+  // A3: chuva de ₿ apenas no Bull Run
   if(ev.id === "bull") startBitcoinRain();
   else stopBitcoinRain();
 }
@@ -696,6 +701,79 @@ const CHOICE_EVENTS = [
         state.mult.reward *= 1.10;
         state.mult.difficulty *= 1.04;
         pushLog("🧱 Reforço aplicado: +10% RB e +4% D permanentes.");
+      },
+    },
+  },
+
+  // === PATCH 0.7 — 3 novos eventos com escolha ===
+  {
+    id: "regulation",
+    title: "Pressão Regulatória",
+    desc: "Autoridades exigem conformidade. Pagar agora evita sanções maiores.",
+    a: {
+      name: "Pagar a multa",
+      tag: "Conformidade",
+      lines: ["-10% do SAT atual (mín. 50 SAT)", "Sem penalidade de dificuldade"],
+      apply: () => {
+        const fine = Math.max(50, Math.floor(state.sat * 0.10));
+        state.sat -= fine;
+        pushLog(`🏛️ Multa paga: ${fine} SAT. Operação regularizada.`);
+      },
+    },
+    b: {
+      name: "Ignorar e continuar",
+      tag: "Risco",
+      lines: ["+30% dificuldade por 20 blocos"],
+      apply: () => {
+        addChoiceFx("reg_ignore", 20, { difficultyMul: 1.30 });
+        pushLog("⚠️ Regulação ignorada: +30% D por 20 blocos.");
+      },
+    },
+  },
+  {
+    id: "mining_competition",
+    title: "Competição de Mining",
+    desc: "Uma pool abriu vagas. Você pode aderir ou competir diretamente.",
+    a: {
+      name: "Entrar na pool",
+      tag: "Estável",
+      lines: ["+15% H/s por 25 blocos", "-10% RB por 25 blocos"],
+      apply: () => {
+        addChoiceFx("pool_join", 25, { hashMul: 1.15, satRateMul: 0.90 });
+        pushLog("🤝 Pool aderida: +15% H/s e -10% RB por 25 blocos.");
+      },
+    },
+    b: {
+      name: "Competir solo",
+      tag: "Agressivo",
+      lines: ["+20% RB por 25 blocos", "+15% dificuldade por 25 blocos"],
+      apply: () => {
+        addChoiceFx("solo_comp", 25, { satRateMul: 1.20, difficultyMul: 1.15 });
+        pushLog("🔴 Competindo solo: +20% RB e +15% D por 25 blocos.");
+      },
+    },
+  },
+  {
+    id: "hw_offer",
+    title: "Oferta de Hardware",
+    desc: "Um lote de equipamentos está disponível por tempo limitado.",
+    a: {
+      name: "Comprar o lote",
+      tag: "Investimento",
+      lines: ["-500 SAT", "+25% H/s permanente"],
+      apply: () => {
+        state.sat -= 500;
+        state.mult.hash *= 1.25;
+        pushLog("🔧 Hardware adquirido: -500 SAT, +25% H/s permanente.");
+      },
+    },
+    b: {
+      name: "Recusar a oferta",
+      tag: "Conservador",
+      lines: ["+10% RB permanente"],
+      apply: () => {
+        state.mult.reward *= 1.10;
+        pushLog("🧊 Oferta recusada: +10% RB permanente como alternativa.");
       },
     },
   },
@@ -820,10 +898,11 @@ function renderChoiceFxHUD(){
   for(const it of list){
     const fx = it.fx || {};
     const pills = [];
-    if(typeof fx.pcMul === "number" && fx.pcMul !== 1) pills.push(pill(`PC ×${fx.pcMul.toFixed(2)}`));
+    if(typeof fx.pcMul         === "number" && fx.pcMul         !== 1) pills.push(pill(`PC ×${fx.pcMul.toFixed(2)}`));
+    if(typeof fx.hashMul       === "number" && fx.hashMul       !== 1) pills.push(pill(`H/s ×${fx.hashMul.toFixed(2)}`));
     if(typeof fx.difficultyMul === "number" && fx.difficultyMul !== 1) pills.push(pill(`D ×${fx.difficultyMul.toFixed(2)}`));
     if(typeof fx.energyCostMul === "number" && fx.energyCostMul !== 1) pills.push(pill(`⚡ ×${fx.energyCostMul.toFixed(2)}`));
-    if(typeof fx.satRateMul === "number" && fx.satRateMul !== 1) pills.push(pill(`SAT/s ×${fx.satRateMul.toFixed(2)}`));
+    if(typeof fx.satRateMul    === "number" && fx.satRateMul    !== 1) pills.push(pill(`SAT/s ×${fx.satRateMul.toFixed(2)}`));
 
     const row = document.createElement("div");
     row.className = "fx-row";
