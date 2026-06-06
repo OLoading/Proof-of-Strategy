@@ -226,7 +226,7 @@ window.UPGRADES = [
     visible: (s) => s.blocksMined >= 45,
     effectLabel: () => `⚡ ×0.85 • PC ×0.97`,
     roi: { mulEnergyCost: 0.85, mulPc: 0.97 },
-    apply: (s) => { s.temp.energyCost *= 0.85; s.mult.pc *= 0.97; }
+    apply: (s) => { s.mult.energyCost = (s.mult.energyCost ?? 1) * 0.85; s.mult.pc *= 0.97; }
   },
   // Máquinas
   {
@@ -240,7 +240,7 @@ window.UPGRADES = [
     visible: (s) => s.blocksMined >= 50,
     effectLabel: () => `H/s ×1.20 • ⚡ ×1.12`,
     roi: { mulHash: 1.20, mulEnergyCost: 1.12 },
-    apply: (s) => { s.mult.hash *= 1.20; s.temp.energyCost *= 1.12; }
+    apply: (s) => { s.mult.hash *= 1.20; s.mult.energyCost = (s.mult.energyCost ?? 1) * 1.12; }
   },
   {
     id: "vent_impro",

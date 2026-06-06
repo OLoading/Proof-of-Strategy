@@ -23,7 +23,7 @@ window.CONFIG = {
   // Recompensa do bloco (SAT) com halvings por blocos
   block: {
     baseRewardSat: 250,          // recompensa inicial por bloco
-    halvingEveryBlocks: 50,      // 1º halving no bloco 50
+    halvingEveryBlocks: 75,      // 1º halving no bloco 75 (dessincroniza do passo de dificuldade @50 → suaviza a parede)
     eventChancePerBlock: 0.10,   // eventos simples (Bull/FUD/Fee/Lucky)
     // PATCH 0.6 P2 — eventos com escolha
     choiceEventChancePerBlock: 0.12,
