@@ -223,7 +223,7 @@ function freshState(){
     hashBase: 0,
     energy: 0,
 
-    mult: { pc:1, hash:1, energy:1, difficulty:1, reward:1 },
+    mult: { pc:1, hash:1, energy:1, difficulty:1, reward:1, energyCost:1 },
     path: null,
 
     fork: { totalForks:0, fp:0, bonusMult:1 },
@@ -232,7 +232,7 @@ function freshState(){
     features: { autoClick:false, noDeficitPenalty:false },
 
     activeEvent: null,
-    temp: { pc:1, hash:1, energyCost:1, reward:1 },
+    temp: { pc:1, hash:1, energyCost:1, reward:1, difficulty:1 },
 
     // ✅ Patch 0.5: specialization
     spec: { eng: { a:0, b:0, c:0 }, max: { a:0, b:0, c:0 } },
@@ -256,12 +256,28 @@ let state = freshState();
 
 
 // ==================================================
-// SECTION: Conquistas
+// SECTION: Conquistas (meta-progresso permanente, fora do save da run)
+// - Vivem em localStorage próprio (como as stats); sobrevivem a Hard Fork e Reset Run.
 // ==================================================
+const ACH_KEY = "pos_ach_v1";
+let achUnlocked = {};   // { id: true }
+
+function loadAch(){
+  try{
+    const raw = localStorage.getItem(ACH_KEY);
+    if(!raw) return;
+    const d = JSON.parse(raw);
+    achUnlocked = (d && d.unlocked) ? d.unlocked : (d || {});
+  }catch{}
+}
+function saveAch(){
+  try{ localStorage.setItem(ACH_KEY, JSON.stringify({ unlocked: achUnlocked })); }catch{}
+}
+
 const ACHIEVEMENTS = [
   { id:"first_block", name:"Primeiro bloco", desc:"Valide 1 bloco.", check:(s)=> s.blocksMined >= 1 },
   { id:"ten_blocks", name:"Dez blocos", desc:"Valide 10 blocos.", check:(s)=> s.blocksMined >= 10 },
-  { id:"first_halving", name:"Primeiro Halving", desc:"Chegue ao primeiro halving (50 blocos).", check:(s)=> s.blocksMined >= 50 },
+  { id:"first_halving", name:"Primeiro Halving", desc:"Chegue ao primeiro halving (75 blocos).", check:(s)=> s.blocksMined >= 75 },
   { id:"choice_made", name:"Decisão tomada", desc:"Escolha Solo ou Pool no bloco 100.", check:(s)=> !!s.path },
   { id:"one_btc", name:"1 BTC acumulado", desc:"Chegue a 1 BTC em SAT (saldo atual).", check:(s)=> s.sat >= CONFIG.SAT_PER_BTC },
   { id:"fork_ready", name:"Pronto pro Fork", desc:"Desbloqueie Hard Fork (200 blocos).", check:(s)=> s.blocksMined >= CONFIG.fork.minBlocks },
@@ -272,8 +288,9 @@ function pushLog(msg){
   if(state.log.length > 80) state.log.length = 80;
 }
 function unlockAchievement(id){
-  if(state.ach.unlocked[id]) return;
-  state.ach.unlocked[id] = true;
+  if(achUnlocked[id]) return;
+  achUnlocked[id] = true;
+  saveAch();
   const a = ACHIEVEMENTS.find(x=>x.id===id);
   if(a){
     toast(`Conquista: ${a.name}`);
@@ -282,7 +299,7 @@ function unlockAchievement(id){
 }
 function checkAchievements(){
   for(const a of ACHIEVEMENTS){
-    if(!state.ach.unlocked[a.id] && a.check(state)) unlockAchievement(a.id);
+    if(!achUnlocked[a.id] && a.check(state)) unlockAchievement(a.id);
   }
 }
 
@@ -295,10 +312,10 @@ const SPEC = {
   engineer: [
     { id:"a", name:"Grid Tuning", desc:"+1 nível = -4% custo de energia", max:5, apply:(s,lvl)=>{ s.temp.energyCost *= (1 - 0.04*lvl); } },
     { id:"b", name:"ASIC Scheduler", desc:"+1 nível = +6% H/s", max:5, apply:(s,lvl)=>{ s.temp.hash *= (1 + 0.06*lvl); } },
-    { id:"c", name:"Difficulty Dampener", desc:"+1 nível = -3% dificuldade", max:4, apply:(s,lvl)=>{ s.mult.difficulty *= (1 - 0.03*lvl); } },
+    { id:"c", name:"Difficulty Dampener", desc:"+1 nível = -3% dificuldade", max:4, apply:(s,lvl)=>{ s.temp.difficulty *= (1 - 0.03*lvl); } },
   ],
   maxi: [
-    { id:"a", name:"Block Hunger", desc:"+1 nível = +5% recompensa", max:5, apply:(s,lvl)=>{ s.mult.reward *= (1 + 0.05*lvl); } },
+    { id:"a", name:"Block Hunger", desc:"+1 nível = +5% recompensa", max:5, apply:(s,lvl)=>{ s.temp.reward *= (1 + 0.05*lvl); } },
     { id:"b", name:"Click Brutality", desc:"+1 nível = +6% PC", max:5, apply:(s,lvl)=>{ s.temp.pc *= (1 + 0.06*lvl); } },
     { id:"c", name:"Overclock Mindset", desc:"+1 nível = +4% H/s, +2% custo energia", max:4, apply:(s,lvl)=>{ s.temp.hash *= (1 + 0.04*lvl); s.temp.energyCost *= (1 + 0.02*lvl); } },
   ]
@@ -314,19 +331,25 @@ function specAvailablePoints(){
   const total = Math.floor(state.fork?.fp || 0);
   return Math.max(0, total - specTotalLevels());
 }
-function applySpecialization(){
-  if(!state.spec) return;
+function applySpecialization(target){
+  const s = target || state;
+  if(!s.spec) return;
 
   for(const perk of SPEC.engineer){
-    const lvl = state.spec.eng?.[perk.id] ?? 0;
-    if(lvl > 0) perk.apply(state, lvl);
+    const lvl = s.spec.eng?.[perk.id] ?? 0;
+    if(lvl > 0) perk.apply(s, lvl);
   }
   for(const perk of SPEC.maxi){
-    const lvl = state.spec.max?.[perk.id] ?? 0;
-    if(lvl > 0) perk.apply(state, lvl);
+    const lvl = s.spec.max?.[perk.id] ?? 0;
+    if(lvl > 0) perk.apply(s, lvl);
   }
 }
 function renderSpec(){
+  // memo: só reconstrói quando FP ou níveis de perk mudam
+  const sig = `${specTotalLevels()}:${state.fork?.fp || 0}`;
+  if(renderSpec._sig === sig) return;
+  renderSpec._sig = sig;
+
   const fpEl = $("specFP");
   const avEl = $("specAvail");
   if(fpEl) fpEl.textContent = fmt(state.fork?.fp || 0, 2);
@@ -435,12 +458,13 @@ function currentDifficulty(){
   const steps = Math.floor(state.blocksMined / CONFIG.difficulty.everyNBlocks);
   const base = CONFIG.difficulty.start * Math.pow(CONFIG.difficulty.multiplier, steps);
   const fx = choiceFxMults();
-  return base * state.mult.difficulty * fx.difficultyMul;
+  return base * state.mult.difficulty * (state.temp.difficulty ?? 1) * fx.difficultyMul;
 }
 function currentBlockReward(){
   const halvings = Math.floor(state.blocksMined / CONFIG.block.halvingEveryBlocks);
   const base = CONFIG.block.baseRewardSat / Math.pow(2, halvings);
-  return Math.max(0.0001, base) * state.mult.reward * state.temp.reward;
+  const fx = choiceFxMults();
+  return Math.max(0.0001, base) * state.mult.reward * state.temp.reward * fx.satRateMul;
 }
 function pcValue(){
   const fx = choiceFxMults();
@@ -453,7 +477,7 @@ function hashValue(deficit){
 }
 function energyPerSec(){ return state.energy * state.mult.energy; }
 function energyCostPerSec(){ const fx = choiceFxMults();
-  return energyPerSec() * CONFIG.energy.satPerEnergyPerSec * state.temp.energyCost * fx.energyCostMul; }
+  return energyPerSec() * CONFIG.energy.satPerEnergyPerSec * (state.mult.energyCost ?? 1) * state.temp.energyCost * fx.energyCostMul; }
 function nextHalvingIn(){
   const mod = state.blocksMined % CONFIG.block.halvingEveryBlocks;
   return CONFIG.block.halvingEveryBlocks - mod;
@@ -475,7 +499,7 @@ function estimateNetSatPerSec(){
 function estimateNetSatPerSecFromClone(clone){
   const Dsteps = Math.floor(clone.blocksMined / CONFIG.difficulty.everyNBlocks);
   const Dbase = CONFIG.difficulty.start * Math.pow(CONFIG.difficulty.multiplier, Dsteps);
-  const Dclone = Dbase * (clone.mult?.difficulty ?? 1);
+  const Dclone = Dbase * (clone.mult?.difficulty ?? 1) * (clone.temp?.difficulty ?? 1);
 
   const halvings = Math.floor(clone.blocksMined / CONFIG.block.halvingEveryBlocks);
   const rbase = CONFIG.block.baseRewardSat / Math.pow(2, halvings);
@@ -486,14 +510,15 @@ function estimateNetSatPerSecFromClone(clone){
   const hclone = deficit ? hcloneBase * CONFIG.energy.deficitPenaltyHashrateMult : hcloneBase;
 
   const eclone = (clone.energy ?? 0) * (clone.mult?.energy ?? 1);
-  const ecclone = eclone * CONFIG.energy.satPerEnergyPerSec * (clone.temp?.energyCost ?? 1);
+  const ecclone = eclone * CONFIG.energy.satPerEnergyPerSec * (clone.mult?.energyCost ?? 1) * (clone.temp?.energyCost ?? 1);
 
   const blocksPerSec = (hclone / Dclone) / 100;
   return (blocksPerSec * rclone) - ecclone;
 }
 function simulateUpgradeDelta(id){
   const u = UPGRADES.find(x=>x.id===id);
-  if(!u) return { delta:0, roiSec:Infinity };
+  // defensivo: id inexistente ou upgrade sem apply() não quebra a loja
+  if(!u || typeof u.apply !== "function") return { delta:0, roiSec:Infinity };
 
   const qty = state.owned[id] ?? 0;
   if(u.type === "unique" && qty >= 1) return { delta:0, roiSec:Infinity };
@@ -501,11 +526,13 @@ function simulateUpgradeDelta(id){
   const net0 = estimateNetSatPerSec();
 
   const clone = JSON.parse(JSON.stringify(state));
-  clone.mult = clone.mult ?? { pc:1, hash:1, energy:1, difficulty:1, reward:1 };
-  clone.temp = { pc:1, hash:1, energyCost:1, reward:1 };
+  clone.mult = clone.mult ?? { pc:1, hash:1, energy:1, difficulty:1, reward:1, energyCost:1 };
+  if(clone.mult.energyCost == null) clone.mult.energyCost = 1;
+  clone.temp = { pc:1, hash:1, energyCost:1, reward:1, difficulty:1 };
   clone.features = clone.features ?? { autoClick:false, noDeficitPenalty:false };
   clone.fork = clone.fork ?? { bonusMult:1 };
 
+  applySpecialization(clone);   // espelha o real: perks vivem no temp
   u.apply(clone);
 
   const net1 = estimateNetSatPerSecFromClone(clone);
@@ -520,8 +547,14 @@ function simulateUpgradeDelta(id){
 // SECTION: Eventos
 // ==================================================
 function clearTemp(){
-  state.temp = { pc:1, hash:1, energyCost:1, reward:1 };
-  applySpecialization(); // ✅ perks sempre aplicados
+  state.temp = { pc:1, hash:1, energyCost:1, reward:1, difficulty:1 };
+  applySpecialization();      // perks sempre re-aplicados (idempotente, vivem no temp)
+  reapplyActiveEvent();       // não perde o efeito de um evento temporizado ativo
+}
+function reapplyActiveEvent(){
+  if(!state.activeEvent) return;
+  const ev = EVENTS.find(e => e.id === state.activeEvent.id);
+  if(ev && ev.id !== "lucky") ev.start(state);
 }
 function startEvent(ev){
   if(ev.id !== "lucky"){
@@ -543,6 +576,7 @@ function startEvent(ev){
 }
 function maybeTriggerEvent(){
   if(Math.random() >= CONFIG.block.eventChancePerBlock) return;
+  state.activeEvent = null;           // evita empilhar com um evento anterior ainda ativo
   clearTemp();
   const ev = EVENTS[Math.floor(Math.random() * EVENTS.length)];
   startEvent(ev);
@@ -992,13 +1026,19 @@ function loop(){
 // SECTION: UI (render)
 // ==================================================
 function renderAchievements(){
-  if($("achCount")) $("achCount").textContent = `${Object.keys(state.ach.unlocked).length}/${ACHIEVEMENTS.length}`;
   const list = $("achList");
   if(!list) return;
+
+  // memo: só reconstrói quando o nº de conquistas desbloqueadas muda
+  const sig = Object.keys(achUnlocked).length;
+  if(renderAchievements._sig === sig) return;
+  renderAchievements._sig = sig;
+
+  if($("achCount")) $("achCount").textContent = `${sig}/${ACHIEVEMENTS.length}`;
   list.innerHTML = "";
 
   for(const a of ACHIEVEMENTS){
-    const ok = !!state.ach.unlocked[a.id];
+    const ok = !!achUnlocked[a.id];
     const item = document.createElement("div");
     item.className = `ach-item ${ok ? "" : "locked"}`;
     item.innerHTML = `
@@ -1013,6 +1053,12 @@ function renderAchievements(){
 function renderLog(){
   const list = $("logList");
   if(!list) return;
+
+  // memo: só reconstrói quando o log muda (tamanho ou entrada mais recente)
+  const sig = state.log.length + ":" + (state.log[0]?.t || 0);
+  if(renderLog._sig === sig) return;
+  renderLog._sig = sig;
+
   list.innerHTML = "";
   if(!state.log.length){
     list.innerHTML = `<div class="muted small">Sem eventos ainda…</div>`;
@@ -1090,24 +1136,47 @@ function renderUI(){
 function applyOfflineProgress(loadedObj){
   const last = loadedObj.t;
   const now = Date.now();
-  let secs = (now - last) / 1000;
-  secs = clamp(secs, 0, CONFIG.offline.maxSeconds);
+  let secs = clamp((now - last) / 1000, 0, CONFIG.offline.maxSeconds);
   if(secs <= 2) return;
 
-  // ✅ conta offline nas stats
+  // conta offline nas stats
   stats.totalSeconds += secs;
   stats.runSeconds += secs;
+
+  const deficit = state.sat < 0;
+  const hBase = hashValue(deficit) * CONFIG.offline.efficiency;
+
+  // energia também escalada pela eficiência offline (consistente com o hash)
+  state.sat -= energyCostPerSec() * CONFIG.offline.efficiency * secs;
+
+  // minera respeitando a dificuldade crescente (sobe a cada 50 blocos),
+  // sem disparar eventos/modais/som como o onBlockMined faria no boot.
+  let remaining = secs;
+  let blocks = 0;
+  let satGained = 0;
+  const MAX_OFFLINE_BLOCKS = 100000; // trava de segurança
+  while(hBase > 0 && remaining > 0 && blocks < MAX_OFFLINE_BLOCKS){
+    const D = currentDifficulty();
+    const progPerSec = hBase / D;            // progresso/s (100 = 1 bloco)
+    if(progPerSec <= 0) break;
+    const needed = (100 - state.blockProgress) / progPerSec; // s p/ fechar o bloco
+    if(needed > remaining){
+      state.blockProgress += progPerSec * remaining;
+      remaining = 0;
+    } else {
+      remaining -= needed;
+      state.blockProgress = 0;
+      satGained += currentBlockReward();
+      state.blocksMined += 1;
+      blocks += 1;
+    }
+  }
+  state.sat += satGained;
+  if(state.blocksMined > stats.bestRunBlocks) stats.bestRunBlocks = state.blocksMined;
   saveStats();
 
-  const D = currentDifficulty();
-  const deficit = state.sat < 0;
-  const h = hashValue(deficit) * CONFIG.offline.efficiency;
-
-  addProgress((h * secs) / D);
-  state.sat -= energyCostPerSec() * secs;
-
-  pushLog(`🕒 Offline aplicado: ${Math.floor(secs)}s`);
-  toast(`Offline: +${fmt(secs,0)}s aplicados`);
+  pushLog(`🕒 Offline: ${Math.floor(secs)}s • +${blocks} blocos, +${fmt(satGained,0)} SAT`);
+  toast(`Offline: +${blocks} blocos aplicados`);
 }
 
   // --------- settings modal ---------
@@ -1169,6 +1238,7 @@ function boot(){
   loadMusic();
   loadAccess();
   loadStats();
+  loadAch();
   applyAccess();
 
   initAudio();
@@ -1176,30 +1246,6 @@ function boot(){
 
   initMusic();
   applyMusicSettings();
-  // ==============================
-  // LOAD SAVE (definitivo)
-  // ==============================
-  const loadedBoot = SAVE.loadGame();
-  if(loadedBoot && loadedBoot.s){
-    // merge com defaults pra evitar state incompleto quebrar o jogo
-    state = Object.assign(freshState(), loadedBoot.s);
-
-    // garante estruturas aninhadas
-    state.mult = state.mult ?? { pc:1, hash:1, energy:1, difficulty:1, reward:1 };
-    state.temp = state.temp ?? { pc:1, hash:1, energyCost:1, reward:1 };
-    state.features = state.features ?? { autoClick:false, noDeficitPenalty:false };
-    state.fork = state.fork ?? { totalForks:0, fp:0, bonusMult:1 };
-    state.owned = state.owned ?? {};
-    state.ui = state.ui ?? { tab:"click" };
-    state.log = state.log ?? [];
-    state.ach = state.ach ?? { unlocked:{} };
-    state.spec = state.spec ?? { eng:{a:0,b:0,c:0}, max:{a:0,b:0,c:0} };
-
-    // timestamps
-    state.lastTick = Date.now();
-    state.lastSave = Date.now();
-  }
-
 
   const btnOpenSettings = $("btnOpenSettings");
 const btnCloseSettings = $("btnCloseSettings");
@@ -1339,7 +1385,7 @@ document.querySelectorAll('[data-close="settings"]').forEach(el=>{
 
   // reset run
   if($("btnReset")) $("btnReset").addEventListener("click", ()=>{
-    localStorage.removeItem(SAVE.SAVE_KEY);
+    localStorage.removeItem(SAVE.KEY);
     state = freshState();
     clearTemp();
     stats.runSeconds = 0;
@@ -1388,6 +1434,13 @@ document.querySelectorAll('[data-close="settings"]').forEach(el=>{
       state.spec = state.spec ?? { eng:{a:0,b:0,c:0}, max:{a:0,b:0,c:0} };
       state.lastTick = Date.now();
       state.lastSave = Date.now();
+
+      // migra conquistas do save importado para o meta-progresso permanente
+      if(state.ach && state.ach.unlocked){
+        for(const k in state.ach.unlocked){ if(state.ach.unlocked[k]) achUnlocked[k] = true; }
+        saveAch();
+        renderAchievements._sig = null; // força re-render do painel
+      }
     }
     toast("Save importado");
     clearTemp();
@@ -1478,10 +1531,10 @@ document.querySelectorAll('[data-close="settings"]').forEach(el=>{
     }
   });
 
-  // load save
+  // load save (merge seguro com defaults pra não quebrar saves antigos)
   const loaded = SAVE.loadGame();
-  if(loaded){
-    state = loaded.s;
+  if(loaded && loaded.s){
+    state = Object.assign(freshState(), loaded.s);
 
     state.lastTick = Date.now();
     state.lastSave = Date.now();
@@ -1495,6 +1548,12 @@ document.querySelectorAll('[data-close="settings"]').forEach(el=>{
     state.log = state.log ?? [];
     state.ach = state.ach ?? { unlocked:{} };
     state.path = state.path ?? null;
+
+    // migração: conquistas que ficavam no save da run passam para o meta-progresso permanente
+    if(state.ach && state.ach.unlocked){
+      for(const k in state.ach.unlocked){ if(state.ach.unlocked[k]) achUnlocked[k] = true; }
+      saveAch();
+    }
 
     clearTemp();
     applyOfflineProgress(loaded);
@@ -1595,33 +1654,6 @@ document.querySelectorAll('[data-close="settings"]').forEach(el=>{
   });
 })();
 
-// ============================================
-// HOTFIX: não travar boot se algum item da loja não tiver apply()
-// + loga qual item está quebrado
-// Cole no FINAL do game.js
-// ============================================
-(function shopApplyGuard(){
-  if (typeof window.simulateUpgradeDelta !== "function") {
-    console.warn("[SHOP GUARD] simulateUpgradeDelta não encontrada.");
-    return;
-  }
-
-  const orig = window.simulateUpgradeDelta;
-
-  window.simulateUpgradeDelta = function(u, qty){
-    try{
-      // se não tem apply, não quebra o jogo — retorna delta neutro
-      if(!u || typeof u.apply !== "function"){
-        console.error("[SHOP GUARD] Item sem apply():", u);
-        return {}; // delta neutro (não altera nada)
-      }
-      return orig.call(this, u, qty);
-    }catch(err){
-      console.error("[SHOP GUARD] Erro em simulateUpgradeDelta para item:", u, err);
-      return {};
-    }
-  };
-})();
 
 
 boot();
@@ -1652,14 +1684,19 @@ function saveQA(){
 
 function qaBuildDebugText(){
   // usa funções já existentes no game.js
-  const net = satPerSecond() - energyCostPerSecond();
+  const D = currentDifficulty();
+  const h = hashValue(state.sat < 0);
+  const grossSatPerSec = ((h / D) / 100) * currentBlockReward();
+  const energyPerSecCost = energyCostPerSec();
+  const net = estimateNetSatPerSec();
+  const effPc = pcValue() / D;
   const fx = (state.choiceFx || []).map(it => `${it.id} (${it.blocksLeft}b)`).join(", ") || "—";
 
   const lines = [
     `Run: ${state.blocksMined} blocos | Progresso: ${state.blockProgress.toFixed(1)}%`,
     `SAT: ${Math.floor(state.sat)} | BTC: ${(state.sat / CONFIG.SAT_PER_BTC).toFixed(8)}`,
-    `SAT/s bruto: ${satPerSecond().toFixed(2)} | energia/s: ${energyCostPerSecond().toFixed(2)} | líquido: ${net.toFixed(2)}`,
-    `PC base: ${state.pcBase} | PC mult: ${(state.mult.pc * state.temp.pc * state.fork.bonusMult).toFixed(3)} | PC efetivo: ${effectivePc().toFixed(3)}`,
+    `SAT/s bruto: ${grossSatPerSec.toFixed(2)} | energia/s: ${energyPerSecCost.toFixed(2)} | líquido: ${net.toFixed(2)}`,
+    `PC base: ${state.pcBase} | PC mult: ${(state.mult.pc * state.temp.pc * state.fork.bonusMult).toFixed(3)} | PC efetivo: ${effPc.toFixed(3)}`,
     `H/s base: ${state.hashBase.toFixed(2)} | H/s mult: ${(state.mult.hash * state.temp.hash * state.fork.bonusMult).toFixed(3)} | H/s efetivo: ${(state.hashBase * state.mult.hash * state.temp.hash * state.fork.bonusMult).toFixed(2)}`,
     `Dificuldade mult: ${state.mult.difficulty.toFixed(3)} | Reward mult: ${state.mult.reward.toFixed(3)} | Energia mult: ${state.mult.energy.toFixed(3)}`,
     `Path: ${state.path || "—"} | FP: ${state.fork.fp.toFixed(2)} | Bonus: ${state.fork.bonusMult.toFixed(3)}`,
@@ -1738,49 +1775,37 @@ function qaCopyDebug(){
   navigator.clipboard?.writeText(txt).then(()=> toast("Debug copiado!")).catch(()=> toast("Não deu pra copiar"));
 }
 
-// Hook no boot: chama loadQA e liga listeners
-(function qaBoot(){
-  const origBoot = boot;
-  window.boot = function(){
-    loadQA();
-    return origBoot.apply(this, arguments);
-  };
-})();
+// QA: carrega preferência e liga os botões diretamente.
+// boot() já rodou e o DOM está pronto, então é só wire direto (sem hooks).
+(function qaInit(){
+  loadQA();
 
-// Hook no initSettingsUI para wire dos botões
-(function qaWire(){
-  const orig = initSettingsUI;
-  window.initSettingsUI = function(){
-    const ret = orig.apply(this, arguments);
+  const btnQA = $("btnQA");
+  const btnForce = $("btnForceChoiceEvent");
+  const btnSkip = $("btnSkip10Blocks");
+  const btnAdd = $("btnAddSat");
+  const btnReset = $("btnResetRun");
+  const btnCopy = $("btnCopyDebug");
 
-    const btnQA = $("btnQA");
-    const btnForce = $("btnForceChoiceEvent");
-    const btnSkip = $("btnSkip10Blocks");
-    const btnAdd = $("btnAddSat");
-    const btnReset = $("btnResetRun");
-    const btnCopy = $("btnCopyDebug");
-
-    btnQA?.addEventListener("click", ()=>{
-      QA.enabled = !QA.enabled;
-      saveQA();
-      qaSyncUI();
-      toast(QA.enabled ? "QA ON" : "QA OFF");
-    });
-
-    btnForce?.addEventListener("click", ()=> qaForceChoiceEvent());
-    btnSkip?.addEventListener("click", ()=> qaMineBlocks(10));
-    btnAdd?.addEventListener("click", ()=>{
-      state.sat += 10000;
-      pushLog("🧪 QA: +10.000 SAT");
-      renderUI();
-      qaSyncUI();
-    });
-    btnReset?.addEventListener("click", ()=> qaResetRun());
-    btnCopy?.addEventListener("click", ()=> qaCopyDebug());
-
+  btnQA?.addEventListener("click", ()=>{
+    QA.enabled = !QA.enabled;
+    saveQA();
     qaSyncUI();
-    return ret;
-  };
+    toast(QA.enabled ? "QA ON" : "QA OFF");
+  });
+
+  btnForce?.addEventListener("click", ()=> qaForceChoiceEvent());
+  btnSkip?.addEventListener("click", ()=> qaMineBlocks(10));
+  btnAdd?.addEventListener("click", ()=>{
+    state.sat += 10000;
+    pushLog("🧪 QA: +10.000 SAT");
+    renderUI();
+    qaSyncUI();
+  });
+  btnReset?.addEventListener("click", ()=> qaResetRun());
+  btnCopy?.addEventListener("click", ()=> qaCopyDebug());
+
+  qaSyncUI();
 })();
 
 // Hook renderUI para atualizar painel QA quando ligado
