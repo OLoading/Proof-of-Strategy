@@ -278,6 +278,22 @@ function saveAch(){
   try{ localStorage.setItem(ACH_KEY, JSON.stringify({ unlocked: achUnlocked })); }catch{}
 }
 
+// ==================================================
+// PATCH 0.7 — E2: flags de UI (dicas de primeiro uso)
+// Persistem em localStorage próprio; sobrevivem a Fork/Reset.
+// ==================================================
+const UIFLAGS_KEY = "pos_uiflags_v1";
+let uiFlags = {};   // { forkHintSeen: true, ... }
+function loadUIFlags(){
+  try{
+    const raw = localStorage.getItem(UIFLAGS_KEY);
+    if(raw) uiFlags = JSON.parse(raw) || {};
+  }catch{}
+}
+function saveUIFlags(){
+  try{ localStorage.setItem(UIFLAGS_KEY, JSON.stringify(uiFlags)); }catch{}
+}
+
 const ACHIEVEMENTS = [
   // === Blocos ===
   { id:"first_block",   name:"Primeiro Bloco",      desc:"Valide seu primeiro bloco na chain.",          check:(s)=> s.blocksMined >= 1 },
@@ -517,6 +533,22 @@ function nextHalvingIn(){
   return CONFIG.block.halvingEveryBlocks - mod;
 }
 function canFork(){ return state.blocksMined >= CONFIG.fork.minBlocks; }
+
+// PATCH 0.7 — E2: dica de primeiro uso do Hard Fork
+function maybeShowForkHint(){
+  const btn = $("btnFork");
+  if(!btn) return;
+  // só na PRIMEIRA vez que o fork fica disponível, sem nenhum fork ainda
+  if(canFork() && (state.fork?.totalForks ?? 0) === 0 && !uiFlags.forkHintSeen){
+    uiFlags.forkHintSeen = true;
+    saveUIFlags();
+    btn.classList.add("fork-attn");
+    toast("🧨 Hard Fork liberado! Troque o progresso por bônus permanente.");
+    pushLog("🧨 Hard Fork disponível: reinicia a run em troca de FP e bônus permanente.");
+  }
+  // remove o destaque assim que o jogador forka pela primeira vez
+  if((state.fork?.totalForks ?? 0) > 0) btn.classList.remove("fork-attn");
+}
 function calcFP(blocks){ return Math.sqrt(blocks / 10); }
 
 // --------- ROI ---------
@@ -1072,10 +1104,51 @@ function onBlockMined(){
     pushLog(`🪓 Halving aplicado (blocos: ${state.blocksMined})`);
   }
 
+  // D2: halving warning — aviso quando ≤5 blocos para o próximo halving
+  const halvLeft = nextHalvingIn();
+  if(halvLeft <= 5 && halvLeft > 0){
+    toast(`⚠️ Halving em ${halvLeft} bloco${halvLeft > 1 ? "s" : ""}!`);
+  }
+
+  // D3: mini-milestone a cada 25 blocos (exceto nos halvings que já têm aviso)
+  if(state.blocksMined % 25 === 0 && state.blocksMined % CONFIG.block.halvingEveryBlocks !== 0){
+    const bonus = Math.floor(50 + state.blocksMined * 0.5);
+    state.sat += bonus;
+    toast(`🏅 Marco: ${state.blocksMined} blocos! +${bonus} SAT`);
+    pushLog(`🏅 Mini-marco atingido: ${state.blocksMined} blocos — bônus de +${bonus} SAT!`);
+  }
+
   if(state.blocksMined >= 100 && !state.path){
     pushLog("🧭 Decisão disponível: Solo vs Pool");
     openChoiceModal();
   }
+}
+
+// ==================================================
+// PATCH 0.7 — D1: Click Combo System
+// ==================================================
+let _clickCombo = 0;
+let _lastClickTime = 0;
+const COMBO_TIMEOUT_MS = 1500;
+const COMBO_MAX = 8;
+
+function getComboMult(){
+  // 1.0 → 2.0 linear across 0→COMBO_MAX
+  return 1.0 + (_clickCombo / COMBO_MAX);
+}
+
+function updateComboDisplay(){
+  const el = $("comboDisplay");
+  if(!el) return;
+  if(_clickCombo <= 1){ el.hidden = true; return; }
+  el.hidden = false;
+  const mult = getComboMult();
+  el.className = "combo-display" + (_clickCombo >= COMBO_MAX ? " max" : "");
+  el.textContent = `⚡ COMBO ×${fmt(mult, 2)} (${_clickCombo} cliques)`;
+  // retrigger animation
+  el.style.animation = "none";
+  void el.offsetWidth;
+  el.style.animation = "";
 }
 
 // ==================================================
@@ -1125,8 +1198,18 @@ function stopBitcoinRain(){
 function clickMine(){
   stats.totalClicks += 1;
 
+  // D1: combo tracking
+  const now = Date.now();
+  if(now - _lastClickTime <= COMBO_TIMEOUT_MS){
+    _clickCombo = Math.min(_clickCombo + 1, COMBO_MAX);
+  } else {
+    _clickCombo = 1;
+  }
+  _lastClickTime = now;
+  updateComboDisplay();
+
   const D = currentDifficulty();
-  const p = pcValue();
+  const p = pcValue() * getComboMult();
   addProgress(p / D);
 
   playSound("click");
@@ -1164,6 +1247,12 @@ function update(dt){
       state.lastAutoClick = Date.now();
       addProgress(pcValue() / D);
     }
+  }
+
+  // D1: reset combo if idle too long
+  if(_clickCombo > 0 && Date.now() - _lastClickTime > COMBO_TIMEOUT_MS){
+    _clickCombo = 0;
+    updateComboDisplay();
   }
 
   if(Date.now() - state.lastSave >= CONFIG.autosaveMs){
@@ -1257,7 +1346,11 @@ function renderUI(){
   if(wrap) wrap.classList.toggle("near-complete", state.blockProgress >= 85);
 
   if($("blocksMined")) $("blocksMined").textContent = fmt(state.blocksMined, 0);
-  if($("nextHalving")) $("nextHalving").textContent = fmt(nextHalvingIn(), 0);
+  const halvLeft = nextHalvingIn();
+  if($("nextHalving")) $("nextHalving").textContent = fmt(halvLeft, 0);
+  // D2: destaque visual no stat de Blocos quando halving está próximo
+  const halvStat = $("halvingStat");
+  if(halvStat) halvStat.classList.toggle("halving-soon", halvLeft <= 5);
 
   const deficit = state.sat < 0;
   const h = hashValue(deficit);
@@ -1272,11 +1365,15 @@ function renderUI(){
   const pc = pcValue();
   if($("pc")) $("pc").textContent = fmt(pc, 1);
   if($("pcEffective")) $("pcEffective").textContent = fmt(pc / D, 2);
-  if($("mineSub")) $("mineSub").textContent = `+${fmt(pc / D, 2)} progresso/click`;
+  const effectivePc = pc * getComboMult();
+  if($("mineSub")) $("mineSub").textContent = _clickCombo > 1
+    ? `+${fmt(effectivePc / D, 2)} progresso/click (combo ×${fmt(getComboMult(), 2)})`
+    : `+${fmt(pc / D, 2)} progresso/click`;
 
   if($("fp")) $("fp").textContent = fmt(calcFP(state.blocksMined), 2);
   if($("forkBonus")) $("forkBonus").textContent = `+${fmt((state.fork.bonusMult - 1) * 100, 1)}%`;
   if($("btnFork")) $("btnFork").disabled = !canFork();
+  maybeShowForkHint();
 
   if(state.activeEvent){
     const ev = EVENTS.find(x => x.id === state.activeEvent.id);
@@ -1407,6 +1504,7 @@ function boot(){
   loadAccess();
   loadStats();
   loadAch();
+  loadUIFlags();
   applyAccess();
 
   initAudio();

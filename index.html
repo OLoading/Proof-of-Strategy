@@ -14,7 +14,7 @@
   <header class="topbar">
     <div class="brand">
       <div class="brand-title">Proof of Strategy</div>
-      <div class="brand-sub muted">Hardcore miner clicker • Patch 0.6 (P2)</div>
+      <div class="brand-sub muted">Hardcore miner clicker • Patch 0.7</div>
     </div>
 
     <div class="top-actions">
@@ -35,7 +35,7 @@
             <div class="value"><span id="sat">0</span> <span class="unit">SAT</span></div>
             <div class="sub muted"><span id="btc">0.00000000</span> BTC</div>
           </div>
-          <div class="stat">
+          <div class="stat" id="halvingStat">
             <div class="label muted">Blocos</div>
             <div class="value"><span id="blocksMined">0</span></div>
             <div class="sub muted">Próx. halving: <span id="nextHalving">—</span></div>
@@ -49,10 +49,13 @@
 
         <div class="mine">
           <!-- A1: Botão ₿ -->
-          <button class="btn primary mine-btn" id="btnMine">
+          <button class="btn primary mine-btn" id="btnMine" title="Atalho: tecla Espaço">
             <span class="mine-btc-icon">₿</span>
             <span class="mine-label">Minerar</span>
+            <span class="mine-kbd">Espaço</span>
           </button>
+          <!-- D1: combo display -->
+          <div id="comboDisplay" class="combo-display" hidden></div>
           <div class="mine-sub muted" id="mineSub">Clique para minerar. Hardcore pune prejuízo (SAT &lt; 0).</div>
 
           <!-- A2: container de partículas -->
@@ -161,7 +164,7 @@
             <div class="panel-title">Hard Fork</div>
             <div class="muted small">Bônus por FP (hardcore)</div>
           </div>
-          <button class="btn" id="btnFork">Hard Fork</button>
+          <button class="btn" id="btnFork" title="Reinicia a run trocando progresso por bônus permanente">Hard Fork</button>
         </div>
         <div class="fork-grid">
           <div class="mini">
@@ -282,6 +285,18 @@
           <button class="btn" id="btnMotion">Motion: ON</button>
           <button class="btn danger" id="btnResetStats">Reset Stats</button>
           <button class="btn" id="btnQA">QA: OFF</button>
+        </div>
+
+        <div class="settings-section-sep"></div>
+
+        <div class="shortcuts-block">
+          <div class="muted small" style="margin-bottom:8px">⌨️ Atalhos de teclado</div>
+          <div class="shortcuts-grid">
+            <div class="shortcut-row"><kbd>Espaço</kbd><span>Minerar bloco</span></div>
+            <div class="shortcut-row"><kbd>B</kbd><span>Comprar melhor upgrade</span></div>
+            <div class="shortcut-row"><kbd>M</kbd><span>Ligar/desligar música</span></div>
+            <div class="shortcut-row"><kbd>Esc</kbd><span>Fechar janelas</span></div>
+          </div>
         </div>
 
         <div class="settings-section-sep"></div>
