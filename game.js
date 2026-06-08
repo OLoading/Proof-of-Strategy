@@ -371,6 +371,116 @@ function claimMission(id){
   renderShop();
 }
 
+// ==================================================
+// PATCH 0.9 — Daily Bonus / Streak
+// Loja própria em localStorage; sobrevive a Fork/Reset.
+// ==================================================
+const DAILY_KEY = "pos_daily_v1";
+let daily = { lastClaim: null, streak: 0 };
+function loadDaily(){
+  try{ const raw = localStorage.getItem(DAILY_KEY); if(raw) daily = { ...daily, ...JSON.parse(raw) }; }catch{}
+}
+function saveDaily(){
+  try{ localStorage.setItem(DAILY_KEY, JSON.stringify(daily)); }catch{}
+}
+
+const DAILY_REWARDS = [200, 400, 700, 1100, 1600, 2200, 3000]; // dia 1..7+ (satura no 7)
+const DAILY_MAX_DAY = DAILY_REWARDS.length;
+
+function dayKey(d = new Date()){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function dayDiff(aKey, bKey){
+  const a = new Date(aKey + "T00:00:00");
+  const b = new Date(bKey + "T00:00:00");
+  return Math.round((b - a) / 86400000);
+}
+function dailyRewardFor(streakDay){
+  const idx = clamp(streakDay - 1, 0, DAILY_REWARDS.length - 1);
+  const base = DAILY_REWARDS[idx];
+  // escala leve com forks para continuar relevante no late game
+  return Math.floor(base * (1 + 0.10 * (stats.totalForks || 0)));
+}
+function dailyAvailable(){
+  return daily.lastClaim !== dayKey();
+}
+// qual seria o streak se coletasse agora
+function pendingStreak(){
+  if(!daily.lastClaim) return 1;
+  const diff = dayDiff(daily.lastClaim, dayKey());
+  if(diff <= 0) return daily.streak;       // já coletou hoje
+  if(diff === 1) return Math.min(daily.streak + 1, 9999); // dia seguinte
+  return 1;                                 // quebrou o streak
+}
+function claimDaily(){
+  if(!dailyAvailable()){ playSound("error"); return; }
+  const newStreak = pendingStreak();
+  const sat = dailyRewardFor(newStreak);
+  state.sat += sat;
+  daily.streak = newStreak;
+  daily.lastClaim = dayKey();
+  saveDaily();
+  playSound("buy");
+  toast(`📅 Bônus diário (dia ${newStreak}): +${fmtBig(sat)} SAT!`);
+  pushLog(`📅 Bônus diário coletado — streak dia ${newStreak}: +${fmtBig(sat)} SAT.`);
+  renderDaily();
+  updateDailyIndicator();
+  renderUI();
+  renderShop();
+}
+
+function openDailyModal(){
+  const m = $("dailyModal");
+  if(!m) return;
+  renderDaily();
+  m.hidden = false;
+  document.body.style.overflow = "hidden";
+}
+function closeDailyModal(){
+  const m = $("dailyModal");
+  if(!m) return;
+  m.hidden = true;
+  document.body.style.overflow = "";
+}
+function renderDaily(){
+  const strip = $("dailyStrip");
+  const avail = dailyAvailable();
+  const claimStreak = pendingStreak();            // dia que será coletado (ou o atual se já coletou)
+  const shownStreak = avail ? claimStreak : daily.streak;
+
+  if(strip){
+    strip.innerHTML = "";
+    for(let d = 1; d <= DAILY_MAX_DAY; d++){
+      const cell = document.createElement("div");
+      const isToday = avail && d === claimStreak;
+      const past = d < shownStreak || (!avail && d <= daily.streak);
+      cell.className = "daily-cell" + (isToday ? " today" : "") + (past && !isToday ? " done" : "");
+      const label = d === DAILY_MAX_DAY ? `Dia ${d}+` : `Dia ${d}`;
+      cell.innerHTML = `
+        <div class="daily-day">${label}</div>
+        <div class="daily-amt">${fmtBig(dailyRewardFor(d))}</div>
+        ${past && !isToday ? `<div class="daily-check">✓</div>` : ""}
+      `;
+      strip.appendChild(cell);
+    }
+  }
+
+  if($("dailySub")){
+    $("dailySub").textContent = avail
+      ? `Streak atual: ${daily.streak} dia(s). Colete para chegar ao dia ${claimStreak}!`
+      : `Você já coletou hoje. Streak: ${daily.streak} dia(s). Volte amanhã!`;
+  }
+  if($("dailyRewardValue")) $("dailyRewardValue").textContent = `+${fmtBig(dailyRewardFor(claimStreak))} SAT`;
+  if($("btnClaimDaily")){
+    $("btnClaimDaily").disabled = !avail;
+    $("btnClaimDaily").textContent = avail ? "Coletar" : "Coletado ✓";
+  }
+}
+function updateDailyIndicator(){
+  const btn = $("btnDaily");
+  if(btn) btn.classList.toggle("has-bonus", dailyAvailable());
+}
+
 const ACHIEVEMENTS = [
   // === Blocos ===
   { id:"first_block",   name:"Primeiro Bloco",      desc:"Valide seu primeiro bloco na chain.",          check:(s)=> s.blocksMined >= 1 },
@@ -1764,6 +1874,7 @@ function boot(){
   loadAch();
   loadUIFlags();
   loadMissions();
+  loadDaily();
   applyAccess();
 
   initAudio();
@@ -2040,6 +2151,14 @@ document.querySelectorAll('[data-close="settings"]').forEach(el=>{
     startTutorial();
   });
 
+  // PATCH 0.9 — daily bonus
+  if($("btnDaily")) $("btnDaily").addEventListener("click", openDailyModal);
+  if($("btnCloseDaily")) $("btnCloseDaily").addEventListener("click", closeDailyModal);
+  if($("btnClaimDaily")) $("btnClaimDaily").addEventListener("click", claimDaily);
+  if($("dailyModal")) $("dailyModal").addEventListener("click", (e)=>{
+    if(e.target === $("dailyModal")) closeDailyModal();
+  });
+
   // keyboard shortcuts + ESC closes modals
   window.addEventListener("keydown", (e)=>{
     if(e.repeat) return;
@@ -2049,6 +2168,7 @@ document.querySelectorAll('[data-close="settings"]').forEach(el=>{
     if(key === "escape"){
       if(!$("settingsModal")?.hidden) closeSettings();
       if(!$("choiceModal")?.hidden) closeChoiceModal();
+      if(!$("dailyModal")?.hidden) closeDailyModal();
       return;
     }
 
@@ -2108,8 +2228,15 @@ document.querySelectorAll('[data-close="settings"]').forEach(el=>{
   if(state.log.length === 0) pushLog("🟢 Início da sessão");
   requestAnimationFrame(loop);
 
-  // PATCH 0.8 — tutorial de primeira sessão (após o primeiro render)
-  requestAnimationFrame(()=> maybeStartTutorial());
+  // PATCH 0.8/0.9 — tutorial e bônus diário (após o primeiro render)
+  updateDailyIndicator();
+  requestAnimationFrame(()=>{
+    if(!uiFlags.tutorialDone){
+      maybeStartTutorial();        // novato: tutorial primeiro; daily via botão 📅
+    } else if(dailyAvailable()){
+      openDailyModal();            // veterano: abre o bônus diário direto
+    }
+  });
 }
 
 // ============================================
