@@ -205,6 +205,10 @@ function freshStats(){
     totalForks: 0,
     peakSat: 0,
     totalEvents: 0,   // Patch 0.7 — para conquista event_veteran
+    // PATCH 1.0 — contadores por raridade de evento
+    eventsCommon: 0,
+    eventsRare: 0,
+    eventsEpic: 0,
   };
 }
 let stats = freshStats();
@@ -907,6 +911,10 @@ function startEvent(ev){
   playSound("event");
   pushLog(`${rarity === "epic" ? "💎" : rarity === "rare" ? "⭐" : "✨"} Evento${rarity !== "common" ? ` (${rarity})` : ""}: ${ev.name}`);
   stats.totalEvents = (stats.totalEvents || 0) + 1;
+  // PATCH 1.0 — conta por raridade
+  if(rarity === "epic") stats.eventsEpic = (stats.eventsEpic || 0) + 1;
+  else if(rarity === "rare") stats.eventsRare = (stats.eventsRare || 0) + 1;
+  else stats.eventsCommon = (stats.eventsCommon || 0) + 1;
 
   // flash de tela para épicos
   if(rarity === "epic") flashEpic();
@@ -1476,6 +1484,19 @@ const COMBO_MAX = 8;
 // que o loop regrave o estado em memória por cima do backup antes do reload)
 let _restoringBackup = false;
 
+// PATCH 1.0 — histórico de SAT da sessão (para o gráfico de stats)
+const SAT_HISTORY_MAX = 120;
+const SAT_SAMPLE_MS = 2000;
+let _satHistory = [];
+let _lastSatSample = 0;
+function sampleSatHistory(){
+  const now = Date.now();
+  if(now - _lastSatSample < SAT_SAMPLE_MS) return;
+  _lastSatSample = now;
+  _satHistory.push({ t: now, sat: state.sat });
+  if(_satHistory.length > SAT_HISTORY_MAX) _satHistory.shift();
+}
+
 function getComboMult(){
   // 1.0 → 2.0 linear across 0→COMBO_MAX
   return 1.0 + (_clickCombo / COMBO_MAX);
@@ -1575,6 +1596,7 @@ function update(dt){
   stats.totalSeconds += dt;
   stats.runSeconds += dt;
   if(state.sat > stats.peakSat) stats.peakSat = state.sat;
+  sampleSatHistory();
 
   const deficit = state.sat < 0;
   if(deficit && !state.hadNegativeSat) state.hadNegativeSat = true;
@@ -1618,6 +1640,97 @@ function updateBackupInfo(){
   el.textContent = when
     ? `💾 Backup automático: ${new Date(when).toLocaleString("pt-BR")}`
     : "💾 Backup automático: ainda não criado";
+}
+
+// ==================================================
+// PATCH 1.0 — Tela de Estatísticas / gráficos
+// ==================================================
+let _statsRefreshTimer = null;
+function openStatsModal(){
+  const m = $("statsModal");
+  if(!m) return;
+  renderStatsModal();
+  m.hidden = false;
+  document.body.style.overflow = "hidden";
+  if(_statsRefreshTimer) clearInterval(_statsRefreshTimer);
+  _statsRefreshTimer = setInterval(renderStatsModal, 1500);
+}
+function closeStatsModal(){
+  const m = $("statsModal");
+  if(!m) return;
+  m.hidden = true;
+  document.body.style.overflow = "";
+  if(_statsRefreshTimer){ clearInterval(_statsRefreshTimer); _statsRefreshTimer = null; }
+}
+function renderStatsModal(){
+  if($("msPeakSat")) $("msPeakSat").textContent = fmtBig(stats.peakSat || 0) + " SAT";
+  const bpm = stats.runSeconds > 0 ? (state.blocksMined / (stats.runSeconds / 60)) : 0;
+  if($("msBlocksPerMin")) $("msBlocksPerMin").textContent = fmt(bpm, 2);
+  if($("msClicks")) $("msClicks").textContent = fmtBig(stats.totalClicks || 0);
+  if($("msForks")) $("msForks").textContent = fmt(stats.totalForks || 0, 0);
+
+  const c = stats.eventsCommon || 0, r = stats.eventsRare || 0, e = stats.eventsEpic || 0;
+  const tot = c + r + e;
+  if($("msEventsTotal")) $("msEventsTotal").textContent = fmt(tot, 0);
+  const maxv = Math.max(c, r, e, 1);
+  if($("rbCommon")) $("rbCommon").style.width = (c / maxv * 100) + "%";
+  if($("rbRare"))   $("rbRare").style.width   = (r / maxv * 100) + "%";
+  if($("rbEpic"))   $("rbEpic").style.width   = (e / maxv * 100) + "%";
+  if($("rnCommon")) $("rnCommon").textContent = fmt(c, 0);
+  if($("rnRare"))   $("rnRare").textContent   = fmt(r, 0);
+  if($("rnEpic"))   $("rnEpic").textContent   = fmt(e, 0);
+
+  drawSatChart();
+}
+function drawSatChart(){
+  const cv = $("satChart");
+  if(!cv || !cv.getContext) return;
+  const empty = $("satChartEmpty");
+  const data = _satHistory;
+  const ctx = cv.getContext("2d");
+  const W = cv.width, H = cv.height;
+  ctx.clearRect(0, 0, W, H);
+
+  if(data.length < 2){
+    if(empty) empty.hidden = false;
+    cv.style.opacity = ".3";
+    return;
+  }
+  if(empty) empty.hidden = true;
+  cv.style.opacity = "1";
+
+  const pad = 8;
+  const sats = data.map(d => d.sat);
+  let min = Math.min(...sats), max = Math.max(...sats);
+  if(max === min) max = min + 1;
+  const xAt = (i) => pad + (i / (data.length - 1)) * (W - 2 * pad);
+  const yAt = (v) => H - pad - ((v - min) / (max - min)) * (H - 2 * pad);
+
+  // linha de base do zero (se 0 estiver no range)
+  if(min < 0 && max > 0){
+    ctx.strokeStyle = "rgba(255,255,255,.15)";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad, yAt(0)); ctx.lineTo(W - pad, yAt(0)); ctx.stroke();
+  }
+
+  // traço da linha
+  ctx.beginPath();
+  ctx.moveTo(xAt(0), yAt(sats[0]));
+  for(let i = 1; i < data.length; i++) ctx.lineTo(xAt(i), yAt(sats[i]));
+  ctx.strokeStyle = "#f7931a";
+  ctx.lineWidth = 2;
+  ctx.lineJoin = "round";
+  ctx.stroke();
+
+  // preenchimento abaixo da linha
+  ctx.lineTo(xAt(data.length - 1), H - pad);
+  ctx.lineTo(xAt(0), H - pad);
+  ctx.closePath();
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, "rgba(247,147,26,.30)");
+  grad.addColorStop(1, "rgba(247,147,26,0)");
+  ctx.fillStyle = grad;
+  ctx.fill();
 }
 
 function loop(){
@@ -2231,6 +2344,13 @@ document.querySelectorAll('[data-close="settings"]').forEach(el=>{
     if(e.target === $("dailyModal")) closeDailyModal();
   });
 
+  // PATCH 1.0 — stats / gráficos
+  if($("btnOpenStats")) $("btnOpenStats").addEventListener("click", openStatsModal);
+  if($("btnCloseStats")) $("btnCloseStats").addEventListener("click", closeStatsModal);
+  if($("statsModal")) $("statsModal").addEventListener("click", (e)=>{
+    if(e.target === $("statsModal")) closeStatsModal();
+  });
+
   // keyboard shortcuts + ESC closes modals
   window.addEventListener("keydown", (e)=>{
     if(e.repeat) return;
@@ -2241,6 +2361,7 @@ document.querySelectorAll('[data-close="settings"]').forEach(el=>{
       if(!$("settingsModal")?.hidden) closeSettings();
       if(!$("choiceModal")?.hidden) closeChoiceModal();
       if(!$("dailyModal")?.hidden) closeDailyModal();
+      if(!$("statsModal")?.hidden) closeStatsModal();
       return;
     }
 
