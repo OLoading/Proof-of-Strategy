@@ -542,16 +542,22 @@ function checkAchievements(){
 // SECTION: Especializações (Patch 0.5)
 // ==================================================
 const SPEC = {
-  capTotal: 10,
+  capTotal: 18,
   engineer: [
     { id:"a", name:"Grid Tuning", desc:"+1 nível = -4% custo de energia", max:5, apply:(s,lvl)=>{ s.temp.energyCost *= (1 - 0.04*lvl); } },
     { id:"b", name:"ASIC Scheduler", desc:"+1 nível = +6% H/s", max:5, apply:(s,lvl)=>{ s.temp.hash *= (1 + 0.06*lvl); } },
     { id:"c", name:"Difficulty Dampener", desc:"+1 nível = -3% dificuldade", max:4, apply:(s,lvl)=>{ s.temp.difficulty *= (1 - 0.03*lvl); } },
+    // PATCH 0.9 — perks avançados
+    { id:"d", name:"Loop de Imersão", desc:"+1 nível = -5% custo de energia", max:4, apply:(s,lvl)=>{ s.temp.energyCost *= (1 - 0.05*lvl); } },
+    { id:"e", name:"Firmware Quântico", desc:"+1 nível = +5% H/s e -2% dificuldade", max:3, apply:(s,lvl)=>{ s.temp.hash *= (1 + 0.05*lvl); s.temp.difficulty *= (1 - 0.02*lvl); } },
   ],
   maxi: [
     { id:"a", name:"Block Hunger", desc:"+1 nível = +5% recompensa", max:5, apply:(s,lvl)=>{ s.temp.reward *= (1 + 0.05*lvl); } },
     { id:"b", name:"Click Brutality", desc:"+1 nível = +6% PC", max:5, apply:(s,lvl)=>{ s.temp.pc *= (1 + 0.06*lvl); } },
     { id:"c", name:"Overclock Mindset", desc:"+1 nível = +4% H/s, +2% custo energia", max:4, apply:(s,lvl)=>{ s.temp.hash *= (1 + 0.04*lvl); s.temp.energyCost *= (1 + 0.02*lvl); } },
+    // PATCH 0.9 — perks avançados
+    { id:"d", name:"Motor da Ganância", desc:"+1 nível = +7% recompensa", max:4, apply:(s,lvl)=>{ s.temp.reward *= (1 + 0.07*lvl); } },
+    { id:"e", name:"Hiper Clicker", desc:"+1 nível = +8% PC e +3% recompensa", max:3, apply:(s,lvl)=>{ s.temp.pc *= (1 + 0.08*lvl); s.temp.reward *= (1 + 0.03*lvl); } },
   ]
 };
 
