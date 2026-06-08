@@ -975,3 +975,67 @@ body.reduce-motion #btnDaily.has-bonus{ animation:none; }
   animation: epic-flash-kf .9s ease-out forwards;
 }
 body.reduce-motion .epic-flash{ display:none; }
+
+/* =============================================
+   PATCH 1.0 — Mobile / Touch polish
+   ============================================= */
+
+/* toque: sem delay de double-tap, sem flash cinza, sem seleção acidental */
+button, .btn, .tab{
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn, .tab, .mine-btn, .mission-claim, .daily-cell{
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* safe-area para aparelhos com notch */
+.topbar{
+  padding-top: max(14px, env(safe-area-inset-top));
+  padding-left: max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
+}
+.layout{
+  padding-left: max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
+}
+
+/* modais nunca estouram a tela em telas curtas */
+.modal-card{
+  max-height: 90vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ajustes finos para telas pequenas */
+@media (max-width: 480px){
+  .layout{ margin-top: 12px; gap:14px; }
+  .panel{ padding:12px; }
+
+  /* alvos de toque maiores nas abas da loja */
+  .tab{ padding:9px 12px; font-size:13px; }
+
+  /* botões ghost do header com área de toque confortável */
+  .btn.ghost{ width:44px; height:44px; }
+
+  /* save-pill compacto pra caber ao lado dos botões */
+  .save-pill{ font-size:11px; padding:6px 8px; }
+
+  /* título e subtítulo um pouco menores */
+  .brand-title{ font-size:16px; }
+  .brand-sub{ font-size:11px; }
+
+  /* botão de minerar generoso ao toque */
+  .mine-btn{ padding:16px; }
+  .mine-btc-icon{ font-size:36px; }
+
+  /* ações (export/import/restore/reset) ocupam largura cheia */
+  .actions{ gap:8px; }
+  .actions .btn{ flex:1 1 calc(50% - 8px); min-width:0; }
+}
+
+/* telas muito estreitas: strip diário em 3 colunas */
+@media (max-width: 380px){
+  .daily-strip{ grid-template-columns: repeat(3, 1fr); }
+}
