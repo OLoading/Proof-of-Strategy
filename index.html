@@ -2,8 +2,31 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Proof of Strategy — Hardcore Clicker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <title>Proof of Strategy — Hardcore Bitcoin Clicker</title>
+  <meta name="description" content="Hardcore Bitcoin miner clicker — mine blocos, evolua sua operação e domine a chain."/>
+
+  <!-- PWA / identidade (Patch 1.1) -->
+  <link rel="icon" type="image/png" href="./icon.png"/>
+  <link rel="apple-touch-icon" href="./icon.png"/>
+  <link rel="manifest" href="./manifest.webmanifest"/>
+  <meta name="theme-color" content="#f7931a"/>
+  <meta name="color-scheme" content="dark"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="PoS Miner"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+
+  <!-- Open Graph / Twitter (compartilhamento) -->
+  <meta property="og:type" content="website"/>
+  <meta property="og:title" content="Proof of Strategy — Hardcore Bitcoin Clicker"/>
+  <meta property="og:description" content="Mine blocos, evolua sua operação e domine a chain. Um idle/clicker hardcore de mineração."/>
+  <meta property="og:image" content="./icon.png"/>
+  <meta name="twitter:card" content="summary"/>
+  <meta name="twitter:title" content="Proof of Strategy"/>
+  <meta name="twitter:description" content="Hardcore Bitcoin miner clicker."/>
+  <meta name="twitter:image" content="./icon.png"/>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -11,10 +34,59 @@
 </head>
 <body>
 
+  <!-- Sprite de ícones SVG (Patch 1.1) — usados via <svg><use href="#ic-..."></use></svg> -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="ic-click" viewBox="0 0 24 24">
+        <path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"
+              d="M6 3l13 7-5.5 1.8L17 18l-2.4 1.1-3.4-5.3L7 17z"/>
+      </symbol>
+      <symbol id="ic-machines" viewBox="0 0 24 24">
+        <rect x="7" y="7" width="10" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+        <rect x="10" y="10" width="4" height="4" rx="1" fill="currentColor"/>
+        <g stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M9.5 4v3M14.5 4v3M9.5 17v3M14.5 17v3M4 9.5h3M4 14.5h3M17 9.5h3M17 14.5h3"/>
+        </g>
+      </symbol>
+      <symbol id="ic-eff" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M13 2L4 14h6l-1 8 9-12h-6z"/>
+      </symbol>
+      <symbol id="ic-net" viewBox="0 0 24 24">
+        <g stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M6 7l12 0M6 7l4 10M18 7l-4 10"/>
+        </g>
+        <g fill="currentColor">
+          <circle cx="6" cy="7" r="2.6"/><circle cx="18" cy="7" r="2.6"/><circle cx="12" cy="18" r="2.6"/>
+        </g>
+      </symbol>
+      <symbol id="ic-star" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.9 6.6 19.5l1.2-6L3.3 9.3l6.1-.7z"/>
+      </symbol>
+      <symbol id="ic-gem" viewBox="0 0 24 24">
+        <path fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"
+              d="M7 4h10l4 5-9 11L3 9z"/>
+        <path fill="rgba(255,255,255,.25)" d="M7 4h10l-5 5z"/>
+      </symbol>
+    </defs>
+  </svg>
+
+  <!-- Splash / loading (Patch 1.1) -->
+  <div id="splash" class="splash">
+    <div class="splash-inner">
+      <img class="splash-logo" src="./icon.png" alt="" width="120" height="120"/>
+      <div class="splash-title">Proof of Strategy</div>
+      <div class="splash-sub">Hardcore Bitcoin Clicker</div>
+      <div class="splash-bar"><div class="splash-bar-fill"></div></div>
+    </div>
+  </div>
+
   <header class="topbar">
     <div class="brand">
-      <div class="brand-title">Proof of Strategy</div>
-      <div class="brand-sub muted">Hardcore miner clicker • Patch 1.0</div>
+      <img class="brand-mark" src="./icon.png" alt="Proof of Strategy" width="40" height="40"/>
+      <div>
+        <div class="brand-title">Proof of Strategy</div>
+        <div class="brand-sub muted">Hardcore Bitcoin Clicker • Patch 1.1</div>
+      </div>
     </div>
 
     <div class="top-actions">
@@ -144,10 +216,10 @@
             <div class="muted small">Com ROI real estimado (quando aplicável)</div>
           </div>
           <div class="tabs">
-            <button class="tab active" data-tab="click">Clique</button>
-            <button class="tab" data-tab="machines">Máquinas</button>
-            <button class="tab" data-tab="eff">Eficiência</button>
-            <button class="tab" data-tab="net">Rede</button>
+            <button class="tab active" data-tab="click"><svg class="tab-ic"><use href="#ic-click"/></svg>Clique</button>
+            <button class="tab" data-tab="machines"><svg class="tab-ic"><use href="#ic-machines"/></svg>Máquinas</button>
+            <button class="tab" data-tab="eff"><svg class="tab-ic"><use href="#ic-eff"/></svg>Eficiência</button>
+            <button class="tab" data-tab="net"><svg class="tab-ic"><use href="#ic-net"/></svg>Rede</button>
           </div>
         </div>
         <div id="shopList"></div>
@@ -304,8 +376,42 @@
       <div class="stats-rarity">
         <div class="muted small" style="margin-bottom:8px">Eventos por raridade (total: <span id="msEventsTotal">0</span>)</div>
         <div class="rarity-bar-row"><span class="rarity-tag common">Comum</span><div class="rarity-bar"><div class="rarity-fill common" id="rbCommon"></div></div><span class="rarity-num" id="rnCommon">0</span></div>
-        <div class="rarity-bar-row"><span class="rarity-tag rare">Raro</span><div class="rarity-bar"><div class="rarity-fill rare" id="rbRare"></div></div><span class="rarity-num" id="rnRare">0</span></div>
-        <div class="rarity-bar-row"><span class="rarity-tag epic">Épico</span><div class="rarity-bar"><div class="rarity-fill epic" id="rbEpic"></div></div><span class="rarity-num" id="rnEpic">0</span></div>
+        <div class="rarity-bar-row"><span class="rarity-tag rare"><svg class="rar-ic"><use href="#ic-star"/></svg>Raro</span><div class="rarity-bar"><div class="rarity-fill rare" id="rbRare"></div></div><span class="rarity-num" id="rnRare">0</span></div>
+        <div class="rarity-bar-row"><span class="rarity-tag epic"><svg class="rar-ic"><use href="#ic-gem"/></svg>Épico</span><div class="rarity-bar"><div class="rarity-fill epic" id="rbEpic"></div></div><span class="rarity-num" id="rnEpic">0</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Créditos (Patch 1.1) -->
+  <div class="modal" id="creditsModal" hidden>
+    <div class="modal-card credits-card">
+      <div class="settings-head">
+        <div>
+          <div class="modal-title">Sobre o jogo</div>
+          <div class="modal-sub muted">Créditos & versão</div>
+        </div>
+        <button class="btn ghost" id="btnCloseCredits">✕</button>
+      </div>
+
+      <div class="credits-hero">
+        <img src="./icon.png" alt="" width="72" height="72" class="credits-logo"/>
+        <div>
+          <div class="credits-name">Proof of Strategy</div>
+          <div class="muted small">Hardcore Bitcoin Clicker</div>
+          <div class="muted small">Versão 1.1 — lançamento de teste</div>
+        </div>
+      </div>
+
+      <p class="credits-text muted">
+        Um idle/clicker de mineração de Bitcoin: valide blocos, evolua sua operação,
+        sobreviva aos halvings e domine a chain. Construído em HTML/CSS/JS puro,
+        com áudio procedural e jogável offline (PWA).
+      </p>
+
+      <div class="credits-list">
+        <div class="credits-row"><span class="muted small">Game design & código</span><span>OLoading</span></div>
+        <div class="credits-row"><span class="muted small">Desenvolvimento assistido</span><span>Claude (Anthropic)</span></div>
+        <div class="credits-row"><span class="muted small">Tecnologia</span><span>Vanilla JS • Web Audio • SVG • PWA</span></div>
       </div>
     </div>
   </div>
@@ -384,6 +490,7 @@
             <div class="shortcut-row"><kbd>Esc</kbd><span>Fechar janelas</span></div>
           </div>
           <button class="btn" id="btnReplayTutorial" style="margin-top:10px">🎓 Rever tutorial</button>
+          <button class="btn" id="btnCredits" style="margin-top:8px">ℹ️ Sobre o jogo / Créditos</button>
         </div>
 
         <div class="settings-section-sep"></div>
@@ -450,6 +557,15 @@
   <script src="./upgrades.js"></script>
   <script src="./save.js"></script>
   <script src="./game.js"></script>
+
+  <!-- PWA: registra o service worker (offline + instalável) -->
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("./sw.js").catch(() => {});
+      });
+    }
+  </script>
 
 </body>
 </html>

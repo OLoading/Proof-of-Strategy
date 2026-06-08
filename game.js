@@ -72,23 +72,9 @@ const AUDIO = {
   cooldownMs: { click:35, block:120, buy:90, event:250, error:200 }
 };
 
-function loadSound(name){
-  const a = new Audio(`sounds/${name}.mp3`);
-  a.volume = AUDIO.volume;
-  return a;
-}
-function initAudio(){
-  AUDIO.sounds = {
-    click: loadSound("click"),
-    block: loadSound("block"),
-    buy: loadSound("buy"),
-    event: loadSound("event"),
-    error: loadSound("error"),
-  };
-}
-function applyAudioSettings(){
-  for(const k in AUDIO.sounds) AUDIO.sounds[k].volume = AUDIO.volume;
-}
+// PATCH 1.1 — SFX 100% procedurais (Web Audio, sem arquivos MP3)
+function initAudio(){ /* nada a pré-carregar: SFX são sintetizados */ }
+function applyAudioSettings(){ /* volume é lido ao vivo na síntese */ }
 function saveAudio(){
   localStorage.setItem(AUDIO_KEY, JSON.stringify({ enabled: AUDIO.enabled, volume: AUDIO.volume }));
 }
@@ -101,29 +87,100 @@ function loadAudio(){
     if(typeof d.volume === "number") AUDIO.volume = clamp(d.volume, 0, 1);
   }catch{}
 }
-function playSound(name){
-  if(!AUDIO.enabled) return;
-  const s = AUDIO.sounds[name];
-  if(!s) return;
 
-  const now = performance.now();
-  const cd = AUDIO.cooldownMs?.[name] ?? 0;
-  const last = AUDIO.lastPlayed?.[name] ?? -1e9;
-  if(now - last < cd) return;
-  AUDIO.lastPlayed[name] = now;
-
-  const vol = name === "error" ? (AUDIO.volume * 0.75) : AUDIO.volume;
-  const c = s.cloneNode();
-  c.volume = vol;
-  c.play().catch(()=>{});
-}
-
-// PATCH 1.0 — jingle épico sintetizado (Web Audio, sem arquivo)
 let _audioCtx = null;
 function getAudioCtx(){
   if(_audioCtx) return _audioCtx;
   try{ _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }catch{ _audioCtx = null; }
   return _audioCtx;
+}
+
+// --- helpers de síntese ---
+function _tone(ctx, dest, t0, { type="sine", f0, f1, dur=0.12, peak=0.5, attack=0.005 }){
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(f0, t0);
+  if(f1 != null) osc.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t0 + dur);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(peak, t0 + attack);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  osc.connect(g); g.connect(dest);
+  osc.start(t0); osc.stop(t0 + dur + 0.02);
+}
+function _noise(ctx, dest, t0, { dur=0.08, peak=0.3, hp=0 }){
+  const n = Math.floor(ctx.sampleRate * dur);
+  const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for(let i=0;i<n;i++) d[i] = (Math.random()*2-1) * (1 - i/n); // ruído com decaimento
+  const src = ctx.createBufferSource(); src.buffer = buf;
+  const g = ctx.createGain(); g.gain.value = peak;
+  let node = src;
+  if(hp){ const f = ctx.createBiquadFilter(); f.type="highpass"; f.frequency.value=hp; src.connect(f); node=f; }
+  node.connect(g); g.connect(dest);
+  src.start(t0);
+}
+
+// PATCH 1.0/1.1 — jingle épico sintetizado
+function playEpicJingle(){
+  if(!AUDIO.enabled) return;
+  const ctx = getAudioCtx();
+  if(!ctx) return;
+  if(ctx.state === "suspended") ctx.resume().catch(()=>{});
+  const now = ctx.currentTime;
+  const notes = [523.25, 659.25, 783.99, 1046.50]; // C5 E5 G5 C6
+  const master = ctx.createGain();
+  master.gain.value = clamp(AUDIO.volume, 0, 1) * 0.5;
+  master.connect(ctx.destination);
+  notes.forEach((f, i)=> _tone(ctx, master, now + i*0.10, { type:"triangle", f0:f, dur:0.4, peak:0.6, attack:0.02 }));
+}
+
+// SFX procedurais por nome
+function synthSfx(name){
+  const ctx = getAudioCtx();
+  if(!ctx) return;
+  if(ctx.state === "suspended") ctx.resume().catch(()=>{});
+  const t = ctx.currentTime;
+  const v = clamp(AUDIO.volume, 0, 1);
+  const master = ctx.createGain();
+  master.gain.value = v;
+  master.connect(ctx.destination);
+
+  switch(name){
+    case "click":
+      _tone(ctx, master, t, { type:"triangle", f0:760, f1:520, dur:0.06, peak:0.32, attack:0.002 });
+      break;
+    case "block": // "thunk" + ping de moeda
+      _tone(ctx, master, t, { type:"sine", f0:180, f1:70, dur:0.18, peak:0.5, attack:0.004 });
+      _tone(ctx, master, t+0.01, { type:"triangle", f0:1180, f1:760, dur:0.12, peak:0.22, attack:0.002 });
+      _noise(ctx, master, t, { dur:0.05, peak:0.10, hp:2000 });
+      break;
+    case "buy": // chime ascendente
+      _tone(ctx, master, t, { type:"triangle", f0:660, dur:0.10, peak:0.34, attack:0.004 });
+      _tone(ctx, master, t+0.07, { type:"triangle", f0:990, dur:0.14, peak:0.34, attack:0.004 });
+      break;
+    case "event": // notificação (up-sweep com brilho)
+      _tone(ctx, master, t, { type:"square", f0:440, f1:880, dur:0.16, peak:0.20, attack:0.004 });
+      _tone(ctx, master, t+0.04, { type:"triangle", f0:1320, dur:0.12, peak:0.16, attack:0.004 });
+      break;
+    case "error": // buzz grave dissonante
+      master.gain.value = v * 0.75;
+      _tone(ctx, master, t, { type:"sawtooth", f0:150, f1:90, dur:0.22, peak:0.26, attack:0.004 });
+      _tone(ctx, master, t, { type:"sawtooth", f0:160, f1:96, dur:0.22, peak:0.22, attack:0.004 });
+      break;
+    default:
+      _tone(ctx, master, t, { type:"sine", f0:600, dur:0.1, peak:0.25 });
+  }
+}
+
+function playSound(name){
+  if(!AUDIO.enabled) return;
+  const now = performance.now();
+  const cd = AUDIO.cooldownMs?.[name] ?? 0;
+  const last = AUDIO.lastPlayed?.[name] ?? -1e9;
+  if(now - last < cd) return;
+  AUDIO.lastPlayed[name] = now;
+  try{ synthSfx(name); }catch{}
 }
 function playEpicJingle(){
   if(!AUDIO.enabled) return;
@@ -155,20 +212,24 @@ function playEpicJingle(){
 // ==================================================
 const MUSIC_KEY = "pos_music_v1";
 
+// PATCH 1.1 — trilha ambiente 100% procedural (Web Audio, sem MP3)
 const MUSIC = {
   enabled: false,
   volume: 0.25,
-  el: null
+  gain: null,      // GainNode master da música
+  filter: null,    // lowpass do pad
+  lfo: null,       // modula o cutoff
+  pads: [],        // osciladores do pad (drone)
+  arpTimer: null,
+  playing: false
 };
 
-function initMusic(){
-  const a = new Audio("sounds/ambient.mp3");
-  a.loop = true;
-  a.volume = MUSIC.volume;
-  MUSIC.el = a;
-}
+function initMusic(){ /* grafo criado sob demanda em startMusic */ }
 function applyMusicSettings(){
-  if(MUSIC.el) MUSIC.el.volume = MUSIC.volume;
+  if(MUSIC.gain){
+    const ctx = getAudioCtx();
+    if(ctx) MUSIC.gain.gain.setTargetAtTime(MUSIC.volume, ctx.currentTime, 0.1);
+  }
 }
 function saveMusic(){
   localStorage.setItem(MUSIC_KEY, JSON.stringify({ enabled: MUSIC.enabled, volume: MUSIC.volume }));
@@ -182,14 +243,78 @@ function loadMusic(){
     if(typeof d.volume === "number") MUSIC.volume = clamp(d.volume, 0, 1);
   }catch{}
 }
+
 async function startMusic(){
-  if(!MUSIC.el || !MUSIC.enabled) return;
-  try{ await MUSIC.el.play(); } catch {}
+  if(!MUSIC.enabled || MUSIC.playing) return;
+  const ctx = getAudioCtx();
+  if(!ctx) return;
+  if(ctx.state === "suspended"){ try{ await ctx.resume(); }catch{} }
+
+  // master da música → lowpass → destino
+  MUSIC.gain = ctx.createGain();
+  MUSIC.gain.gain.value = 0.0001;
+  MUSIC.filter = ctx.createBiquadFilter();
+  MUSIC.filter.type = "lowpass";
+  MUSIC.filter.frequency.value = 700;
+  MUSIC.filter.Q.value = 0.6;
+  MUSIC.gain.connect(MUSIC.filter);
+  MUSIC.filter.connect(ctx.destination);
+
+  // LFO lento move o cutoff (sensação de "respiração")
+  MUSIC.lfo = ctx.createOscillator();
+  const lfoGain = ctx.createGain();
+  MUSIC.lfo.frequency.value = 0.06;     // ~17s por ciclo
+  lfoGain.gain.value = 320;
+  MUSIC.lfo.connect(lfoGain); lfoGain.connect(MUSIC.filter.frequency);
+  MUSIC.lfo.start();
+
+  // pad/drone: acorde de lá menor, osciladores levemente desafinados
+  const chord = [110.0, 164.81, 220.0]; // A2, E3, A3
+  MUSIC.pads = [];
+  chord.forEach((f, i)=>{
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = i === 0 ? "sine" : "triangle";
+    o.frequency.value = f;
+    o.detune.value = (i - 1) * 5; // leve desafinação
+    g.gain.value = 0.12 / chord.length * (i === 0 ? 1.4 : 1);
+    o.connect(g); g.connect(MUSIC.gain);
+    o.start();
+    MUSIC.pads.push(o);
+  });
+
+  // fade-in
+  MUSIC.gain.gain.setTargetAtTime(MUSIC.volume, ctx.currentTime, 0.8);
+
+  // arpejo suave evolutivo
+  const arpNotes = [440.0, 523.25, 659.25, 880.0]; // A4 C5 E5 A6
+  MUSIC.arpTimer = setInterval(()=>{
+    if(!MUSIC.playing || !MUSIC.gain) return;
+    const f = arpNotes[Math.floor(Math.random() * arpNotes.length)];
+    _tone(ctx, MUSIC.gain, ctx.currentTime, { type:"triangle", f0:f, dur:1.6, peak:0.05, attack:0.4 });
+  }, 2200);
+
+  MUSIC.playing = true;
 }
+
 function stopMusic(){
-  if(!MUSIC.el) return;
-  MUSIC.el.pause();
-  MUSIC.el.currentTime = 0;
+  const ctx = getAudioCtx();
+  if(MUSIC.arpTimer){ clearInterval(MUSIC.arpTimer); MUSIC.arpTimer = null; }
+  if(ctx && MUSIC.gain){
+    // fade-out e limpeza
+    const t = ctx.currentTime;
+    MUSIC.gain.gain.setTargetAtTime(0.0001, t, 0.4);
+    const pads = MUSIC.pads, lfo = MUSIC.lfo;
+    setTimeout(()=>{
+      try{ pads.forEach(o=>o.stop()); }catch{}
+      try{ if(lfo) lfo.stop(); }catch{}
+    }, 1200);
+  }
+  MUSIC.pads = [];
+  MUSIC.lfo = null;
+  MUSIC.gain = null;
+  MUSIC.filter = null;
+  MUSIC.playing = false;
 }
 
 
@@ -2382,6 +2507,16 @@ document.querySelectorAll('[data-close="settings"]').forEach(el=>{
     if(e.target === $("statsModal")) closeStatsModal();
   });
 
+  // PATCH 1.1 — créditos
+  if($("btnCredits")) $("btnCredits").addEventListener("click", ()=>{
+    if(typeof closeSettings === "function") closeSettings();
+    openCreditsModal();
+  });
+  if($("btnCloseCredits")) $("btnCloseCredits").addEventListener("click", closeCreditsModal);
+  if($("creditsModal")) $("creditsModal").addEventListener("click", (e)=>{
+    if(e.target === $("creditsModal")) closeCreditsModal();
+  });
+
   // keyboard shortcuts + ESC closes modals
   window.addEventListener("keydown", (e)=>{
     if(e.repeat) return;
@@ -2393,6 +2528,7 @@ document.querySelectorAll('[data-close="settings"]').forEach(el=>{
       if(!$("choiceModal")?.hidden) closeChoiceModal();
       if(!$("dailyModal")?.hidden) closeDailyModal();
       if(!$("statsModal")?.hidden) closeStatsModal();
+      if(!$("creditsModal")?.hidden) closeCreditsModal();
       return;
     }
 
@@ -2458,13 +2594,44 @@ document.querySelectorAll('[data-close="settings"]').forEach(el=>{
   // PATCH 0.8/0.9 — tutorial e bônus diário (após o primeiro render)
   updateDailyIndicator();
   updateBackupInfo();
-  requestAnimationFrame(()=>{
+
+  // PATCH 1.1 — esconde o splash e só então abre tutorial/daily
+  hideSplash(()=>{
     if(!uiFlags.tutorialDone){
       maybeStartTutorial();        // novato: tutorial primeiro; daily via botão 📅
     } else if(dailyAvailable()){
       openDailyModal();            // veterano: abre o bônus diário direto
     }
   });
+}
+
+// PATCH 1.1 — modal de créditos
+function openCreditsModal(){
+  const m = $("creditsModal");
+  if(!m) return;
+  m.hidden = false;
+  document.body.style.overflow = "hidden";
+}
+function closeCreditsModal(){
+  const m = $("creditsModal");
+  if(!m) return;
+  m.hidden = true;
+  document.body.style.overflow = "";
+}
+
+// PATCH 1.1 — splash de carregamento
+function hideSplash(then){
+  const el = $("splash");
+  const finish = ()=>{ if(typeof then === "function") then(); };
+  if(!el){ finish(); return; }
+  const delay = ACCESS.reduceMotion ? 0 : 650;
+  setTimeout(()=>{
+    el.classList.add("hide");
+    let done = false;
+    const cleanup = ()=>{ if(done) return; done = true; el.remove(); finish(); };
+    if(ACCESS.reduceMotion){ cleanup(); }
+    else { el.addEventListener("transitionend", cleanup, { once:true }); setTimeout(cleanup, 800); }
+  }, delay);
 }
 
 // ============================================
