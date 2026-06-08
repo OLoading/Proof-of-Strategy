@@ -2,7 +2,7 @@
 // PROOF OF STRATEGY — Service Worker (Patch 1.1)
 // Cache-first do app shell para jogar offline + instalável (PWA)
 // ==================================================
-const CACHE = "pos-cache-v2";
+const CACHE = "pos-cache-v3";
 const ASSETS = [
   "./",
   "./index.html",
@@ -11,7 +11,7 @@ const ASSETS = [
   "./upgrades.js",
   "./save.js",
   "./game.js",
-  "./icon.svg",
+  "./icon.png",
   "./manifest.webmanifest"
 ];
 
