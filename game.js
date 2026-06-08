@@ -14,6 +14,27 @@ function fmt(n, d=0){
   if (!isFinite(n)) return "0";
   return Number(n).toLocaleString("pt-BR", { maximumFractionDigits: d, minimumFractionDigits: d });
 }
+
+// PATCH 0.8 — formatação de números grandes (K/M/B/T…)
+const BIG_SUFFIXES = ["", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc"];
+function fmtBig(n, d=2){
+  if(!isFinite(n)) return "0";
+  const neg = n < 0;
+  let x = Math.abs(n);
+  // abaixo de 1000: inteiro se for redondo, senão até d casas
+  if(x < 1000){
+    const dec = (x % 1 === 0) ? 0 : d;
+    return (neg ? "-" : "") + fmt(x, dec);
+  }
+  let tier = Math.floor(Math.log10(x) / 3);
+  if(tier >= BIG_SUFFIXES.length) tier = BIG_SUFFIXES.length - 1;
+  const scaled = x / Math.pow(1000, tier);
+  // menos casas conforme o número de dígitos inteiros cresce (1,23K • 12,3K • 123K)
+  const intDigits = Math.floor(Math.log10(scaled)) + 1;
+  const dec = clamp(d - (intDigits - 1), 0, d);
+  const str = scaled.toLocaleString("pt-BR", { maximumFractionDigits: dec, minimumFractionDigits: 0 });
+  return (neg ? "-" : "") + str + BIG_SUFFIXES[tier];
+}
 function toast(msg){
   const t = $("toast");
   if(!t) return;
@@ -294,6 +315,62 @@ function saveUIFlags(){
   try{ localStorage.setItem(UIFLAGS_KEY, JSON.stringify(uiFlags)); }catch{}
 }
 
+// ==================================================
+// PATCH 0.8 — Missões / Objetivos
+// Catálogo ordenado; mostra as próximas N não resgatadas.
+// metric() lê valores monotônicos (stats meta + run atual).
+// Persistem em localStorage próprio (sobrevivem a Fork/Reset).
+// ==================================================
+const MISSIONS_KEY = "pos_missions_v1";
+let missionClaimed = {};   // { id: true }
+function loadMissions(){
+  try{
+    const raw = localStorage.getItem(MISSIONS_KEY);
+    if(raw) missionClaimed = JSON.parse(raw) || {};
+  }catch{}
+}
+function saveMissions(){
+  try{ localStorage.setItem(MISSIONS_KEY, JSON.stringify(missionClaimed)); }catch{}
+}
+
+const MISSIONS = [
+  { id:"m_block1",   name:"Primeiro Hash",      desc:"Valide 1 bloco.",          target:1,      metric:()=> Math.max(state.blocksMined, stats.bestRunBlocks ?? 0), reward:()=>{ state.sat += 100; },        rewardLabel:"+100 SAT" },
+  { id:"m_click25",  name:"Dedos Quentes",      desc:"Clique 25 vezes.",         target:25,     metric:()=> stats.totalClicks,                                     reward:()=>{ state.sat += 150; },        rewardLabel:"+150 SAT" },
+  { id:"m_block10",  name:"Aquecendo",          desc:"Valide 10 blocos.",        target:10,     metric:()=> Math.max(state.blocksMined, stats.bestRunBlocks ?? 0), reward:()=>{ state.sat += 400; },        rewardLabel:"+400 SAT" },
+  { id:"m_buy3",     name:"Investidor Inicial", desc:"Compre 3 upgrades.",       target:3,      metric:()=> totalUpgradesOwned(),                                  reward:()=>{ state.sat += 500; },        rewardLabel:"+500 SAT" },
+  { id:"m_sat5k",    name:"Cofre Cheio",        desc:"Acumule 5.000 SAT.",       target:5000,   metric:()=> stats.peakSat ?? 0,                                    reward:()=>{ state.mult.pc *= 1.05; },   rewardLabel:"+5% PC" },
+  { id:"m_event3",   name:"Caçador de Eventos", desc:"Acione 3 eventos.",        target:3,      metric:()=> stats.totalEvents ?? 0,                                reward:()=>{ state.sat += 800; },        rewardLabel:"+800 SAT" },
+  { id:"m_block50",  name:"Minerador Dedicado", desc:"Valide 50 blocos.",        target:50,     metric:()=> Math.max(state.blocksMined, stats.bestRunBlocks ?? 0), reward:()=>{ state.mult.hash *= 1.10; }, rewardLabel:"+10% H/s" },
+  { id:"m_sat50k",   name:"Baleia Jr.",         desc:"Acumule 50.000 SAT.",      target:50000,  metric:()=> stats.peakSat ?? 0,                                    reward:()=>{ state.mult.reward *= 1.08; },rewardLabel:"+8% RB" },
+  { id:"m_fork1",    name:"Novo Começo",        desc:"Faça 1 Hard Fork.",        target:1,      metric:()=> stats.totalForks ?? 0,                                 reward:()=>{ state.sat += 2000; },       rewardLabel:"+2.000 SAT" },
+  { id:"m_block200", name:"Pronto pro Fork",    desc:"Valide 200 blocos.",       target:200,    metric:()=> Math.max(state.blocksMined, stats.bestRunBlocks ?? 0), reward:()=>{ state.mult.pc *= 1.15; },   rewardLabel:"+15% PC" },
+  { id:"m_sat500k",  name:"Magnata",            desc:"Acumule 500.000 SAT.",     target:500000, metric:()=> stats.peakSat ?? 0,                                    reward:()=>{ state.mult.hash *= 1.15; }, rewardLabel:"+15% H/s" },
+];
+
+function totalUpgradesOwned(){
+  let n = 0;
+  for(const k in state.owned){ n += state.owned[k] || 0; }
+  return n;
+}
+// Retorna as próximas missões ainda não resgatadas (em ordem)
+function activeMissions(limit = 3){
+  return MISSIONS.filter(m => !missionClaimed[m.id]).slice(0, limit);
+}
+function claimMission(id){
+  const m = MISSIONS.find(x => x.id === id);
+  if(!m || missionClaimed[id]) return;
+  if(m.metric() < m.target){ playSound("error"); return; }
+  m.reward();
+  missionClaimed[id] = true;
+  saveMissions();
+  playSound("buy");
+  toast(`🎯 Missão concluída: ${m.name} (${m.rewardLabel})`);
+  pushLog(`🎯 Missão "${m.name}" concluída — recompensa: ${m.rewardLabel}.`);
+  renderMissions();
+  renderUI();
+  renderShop();
+}
+
 const ACHIEVEMENTS = [
   // === Blocos ===
   { id:"first_block",   name:"Primeiro Bloco",      desc:"Valide seu primeiro bloco na chain.",          check:(s)=> s.blocksMined >= 1 },
@@ -549,6 +626,80 @@ function maybeShowForkHint(){
   // remove o destaque assim que o jogador forka pela primeira vez
   if((state.fork?.totalForks ?? 0) > 0) btn.classList.remove("fork-attn");
 }
+
+// ==================================================
+// PATCH 0.8 — Tutorial guiado de primeira sessão
+// ==================================================
+const TUTORIAL_STEPS = [
+  { sel:"#btnMine",         title:"⛏️ Minere blocos",        text:"Clique no ₿ (ou tecle Espaço) para gerar progresso. Cliques seguidos formam combo e mineram mais rápido." },
+  { sel:"#progressBarWrap", title:"📊 Progresso do bloco",    text:"Quando a barra chega a 100%, você valida um bloco e ganha a recompensa em SAT." },
+  { sel:"#shopList",        title:"🛒 Evolua na Loja",        text:"Gaste SAT em upgrades para aumentar poder de clique, hashrate e eficiência. Acompanhe o ROI estimado." },
+  { sel:"#missionsPanel",   title:"🎯 Cumpra Missões",        text:"Complete objetivos para ganhar SAT e multiplicadores permanentes. Ótimo para acelerar o começo." },
+  { sel:"#btnFork",         title:"🧨 Hard Fork (prestígio)", text:"Mais adiante, reinicie a run trocando o progresso por bônus permanente. É o ciclo de longo prazo do jogo." },
+];
+let _tutStep = 0;
+
+function startTutorial(){
+  if(!$("tutorialOverlay")) return;
+  _tutStep = 0;
+  $("tutorialOverlay").hidden = false;
+  document.body.style.overflow = "hidden";
+  showTutorialStep(0);
+}
+function showTutorialStep(i){
+  _tutStep = i;
+  const step = TUTORIAL_STEPS[i];
+  if(!step){ endTutorial(); return; }
+  const target = document.querySelector(step.sel);
+  const spot = $("tutorialSpotlight");
+  const tip = $("tutorialTip");
+
+  if($("tutorialStepNum")) $("tutorialStepNum").textContent = `Passo ${i+1} de ${TUTORIAL_STEPS.length}`;
+  if($("tutorialTitle")) $("tutorialTitle").textContent = step.title;
+  if($("tutorialText")) $("tutorialText").textContent = step.text;
+  if($("tutorialNext")) $("tutorialNext").textContent = (i === TUTORIAL_STEPS.length - 1) ? "Concluir" : "Próximo";
+
+  if(!target){ // alvo ausente: centraliza o tip sem spotlight
+    if(spot) spot.style.display = "none";
+    if(tip){ tip.style.left = "50%"; tip.style.top = "50%"; tip.style.transform = "translate(-50%,-50%)"; }
+    return;
+  }
+
+  target.scrollIntoView({ block:"center", behavior:"instant" });
+  // posiciona após o scroll assentar
+  requestAnimationFrame(()=>{
+    const r = target.getBoundingClientRect();
+    const pad = 8;
+    if(spot){
+      spot.style.display = "block";
+      spot.style.left = `${r.left - pad}px`;
+      spot.style.top = `${r.top - pad}px`;
+      spot.style.width = `${r.width + pad*2}px`;
+      spot.style.height = `${r.height + pad*2}px`;
+    }
+    if(tip){
+      tip.style.transform = "none";
+      const tipW = 320;
+      let left = clamp(r.left + r.width/2 - tipW/2, 12, window.innerWidth - tipW - 12);
+      let top = r.bottom + 14;
+      // se não couber abaixo, posiciona acima
+      if(top + 160 > window.innerHeight) top = Math.max(12, r.top - 175);
+      tip.style.left = `${left}px`;
+      tip.style.top = `${top}px`;
+    }
+  });
+}
+function nextTutorialStep(){ showTutorialStep(_tutStep + 1); }
+function endTutorial(){
+  if($("tutorialOverlay")) $("tutorialOverlay").hidden = true;
+  document.body.style.overflow = "";
+  uiFlags.tutorialDone = true;
+  saveUIFlags();
+}
+function maybeStartTutorial(){
+  if(!uiFlags.tutorialDone) startTutorial();
+}
+
 function calcFP(blocks){ return Math.sqrt(blocks / 10); }
 
 // --------- ROI ---------
@@ -991,13 +1142,37 @@ function getUpgradesForTab(tab){
 function ownedQty(id){ return state.owned[id] ?? 0; }
 function isUniqueOwned(u){ return u.type === "unique" && ownedQty(u.id) >= 1; }
 
+// PATCH 0.8 — "Próximo desbloqueio": quantos blocos faltam para um upgrade aparecer
+function blocksNeededFor(u){
+  if(u.visible?.(state) ?? true) return null; // já visível
+  const probe = { ...state };
+  const cur = state.blocksMined;
+  for(let b = cur + 1; b <= cur + 2000; b++){
+    probe.blocksMined = b;
+    if(u.visible?.(probe)) return b - cur;
+  }
+  return null; // gate não depende de blocos (ex.: energia)
+}
+function nextUnlockInfo(tab){
+  const hidden = UPGRADES.filter(u => u.tab === tab && !(u.visible?.(state) ?? true));
+  let best = null;
+  for(const u of hidden){
+    const need = blocksNeededFor(u);
+    if(need == null) continue;
+    if(best == null || need < best.need) best = { u, need };
+  }
+  return best;
+}
+
 function renderShop(){
   const list = $("shopList");
   if(!list) return;
   list.innerHTML = "";
 
   const ups = getUpgradesForTab(state.ui.tab);
-  if(ups.length === 0){
+  const teaser = nextUnlockInfo(state.ui.tab);
+
+  if(ups.length === 0 && !teaser){
     list.innerHTML = `<div class="muted small">Nada aqui ainda. Continue minerando…</div>`;
     return;
   }
@@ -1019,7 +1194,7 @@ function renderShop(){
         <div class="shop-name">${u.name}</div>
         <div class="shop-desc">${u.desc}</div>
         <div class="shop-meta">
-          <span class="pill btc">Custo: ${fmt(cost, 0)} SAT</span>
+          <span class="pill btc">Custo: ${fmtBig(cost)} SAT</span>
           <span class="pill">${u.effectLabel ? u.effectLabel(state) : ""}</span>
           <span class="pill">${roiText}</span>
         </div>
@@ -1034,6 +1209,26 @@ function renderShop(){
 
     el.querySelector("[data-buy]").addEventListener("click", () => buyUpgrade(u.id));
     list.appendChild(el);
+  }
+
+  // PATCH 0.8 — card-fantasma do próximo desbloqueio
+  if(teaser){
+    const t = document.createElement("div");
+    t.className = "shop-item shop-locked";
+    t.innerHTML = `
+      <div>
+        <div class="shop-name">🔒 ${teaser.u.name}</div>
+        <div class="shop-desc">Bloqueado — continue minerando para liberar.</div>
+        <div class="shop-meta">
+          <span class="pill">Desbloqueia em ${fmtBig(teaser.need)} bloco${teaser.need > 1 ? "s" : ""}</span>
+        </div>
+      </div>
+      <div class="shop-actions">
+        <button class="btn" disabled>🔒</button>
+        <div class="qty">bloco ${fmtBig(state.blocksMined + teaser.need)}</div>
+      </div>
+    `;
+    list.appendChild(t);
   }
 }
 
@@ -1114,8 +1309,8 @@ function onBlockMined(){
   if(state.blocksMined % 25 === 0 && state.blocksMined % CONFIG.block.halvingEveryBlocks !== 0){
     const bonus = Math.floor(50 + state.blocksMined * 0.5);
     state.sat += bonus;
-    toast(`🏅 Marco: ${state.blocksMined} blocos! +${bonus} SAT`);
-    pushLog(`🏅 Mini-marco atingido: ${state.blocksMined} blocos — bônus de +${bonus} SAT!`);
+    toast(`🏅 Marco: ${fmtBig(state.blocksMined)} blocos! +${fmtBig(bonus)} SAT`);
+    pushLog(`🏅 Mini-marco atingido: ${fmtBig(state.blocksMined)} blocos — bônus de +${fmtBig(bonus)} SAT!`);
   }
 
   if(state.blocksMined >= 100 && !state.path){
@@ -1304,6 +1499,68 @@ function renderAchievements(){
   }
 }
 
+// PATCH 0.8 — render das missões (estrutura memoizada + progresso ao vivo)
+function renderMissions(){
+  const list = $("missionList");
+  if(!list) return;
+
+  const active = activeMissions(3);
+  const claimedCount = MISSIONS.filter(m => missionClaimed[m.id]).length;
+  if($("missionCount")) $("missionCount").textContent = `${claimedCount}/${MISSIONS.length}`;
+
+  // memo: reconstrói só quando muda o conjunto de missões ativas
+  const sig = active.map(m => m.id).join(",") || "all-done";
+  if(renderMissions._sig !== sig){
+    renderMissions._sig = sig;
+    list.innerHTML = "";
+
+    if(active.length === 0){
+      list.innerHTML = `<div class="muted small">🎉 Todas as missões concluídas! Mais virão em updates futuros.</div>`;
+    } else {
+      for(const m of active){
+        const item = document.createElement("div");
+        item.className = "mission-item";
+        item.dataset.id = m.id;
+        item.innerHTML = `
+          <div class="mission-top">
+            <div class="mission-name">${m.name}</div>
+            <div class="mission-reward">${m.rewardLabel}</div>
+          </div>
+          <div class="mission-desc">${m.desc}</div>
+          <div class="mission-bar"><div class="mission-bar-fill"></div></div>
+          <div class="mission-foot">
+            <span class="mission-prog mono">0/0</span>
+            <button class="btn mission-claim" data-claim="${m.id}" disabled>Resgatar</button>
+          </div>
+        `;
+        list.appendChild(item);
+      }
+    }
+  }
+
+  updateMissionProgress();
+}
+
+// atualiza barras/labels e estado do botão a cada frame (sem reconstruir DOM)
+function updateMissionProgress(){
+  const list = $("missionList");
+  if(!list) return;
+  for(const item of list.querySelectorAll(".mission-item")){
+    const m = MISSIONS.find(x => x.id === item.dataset.id);
+    if(!m) continue;
+    const cur = m.metric();
+    const done = cur >= m.target;
+    const pct = clamp((cur / m.target) * 100, 0, 100);
+    const fill = item.querySelector(".mission-bar-fill");
+    if(fill) fill.style.width = `${pct}%`;
+    const prog = item.querySelector(".mission-prog");
+    if(prog) prog.textContent = `${fmtBig(Math.min(cur, m.target))}/${fmtBig(m.target)}`;
+    const btn = item.querySelector(".mission-claim");
+    if(btn) btn.disabled = !done;
+    item.classList.toggle("ready", done);
+  }
+}
+
 function renderLog(){
   const list = $("logList");
   if(!list) return;
@@ -1330,14 +1587,14 @@ function renderLog(){
 }
 
 function renderUI(){
-  if($("sat")) $("sat").textContent = fmt(state.sat, 0);
+  if($("sat")) $("sat").textContent = fmtBig(state.sat);
   if($("btc")) $("btc").textContent = fmt(state.sat / CONFIG.SAT_PER_BTC, 8);
 
   const D = currentDifficulty();
   if($("difficulty")) $("difficulty").textContent = `${fmt(D, 2)}×`;
 
   const reward = currentBlockReward();
-  if($("blockReward")) $("blockReward").textContent = fmt(reward, 2);
+  if($("blockReward")) $("blockReward").textContent = fmtBig(reward);
 
   if($("blockPct")) $("blockPct").textContent = fmt(state.blockProgress, 1);
   if($("progressBar")) $("progressBar").style.width = `${clamp(state.blockProgress, 0, 100)}%`;
@@ -1345,7 +1602,7 @@ function renderUI(){
   const wrap = $("progressBarWrap");
   if(wrap) wrap.classList.toggle("near-complete", state.blockProgress >= 85);
 
-  if($("blocksMined")) $("blocksMined").textContent = fmt(state.blocksMined, 0);
+  if($("blocksMined")) $("blocksMined").textContent = fmtBig(state.blocksMined);
   const halvLeft = nextHalvingIn();
   if($("nextHalving")) $("nextHalving").textContent = fmt(halvLeft, 0);
   // D2: destaque visual no stat de Blocos quando halving está próximo
@@ -1354,21 +1611,21 @@ function renderUI(){
 
   const deficit = state.sat < 0;
   const h = hashValue(deficit);
-  if($("hashrate")) $("hashrate").textContent = fmt(h, 1);
+  if($("hashrate")) $("hashrate").textContent = fmtBig(h, 1);
 
   const blocksPerSec = (h / D) / 100;
-  if($("cpsSat")) $("cpsSat").textContent = fmt(blocksPerSec * reward, 1);
+  if($("cpsSat")) $("cpsSat").textContent = fmtBig(blocksPerSec * reward, 1);
 
-  if($("energy")) $("energy").textContent = fmt(energyPerSec(), 2);
-  if($("energyCost")) $("energyCost").textContent = fmt(energyCostPerSec(), 2);
+  if($("energy")) $("energy").textContent = fmtBig(energyPerSec(), 2);
+  if($("energyCost")) $("energyCost").textContent = fmtBig(energyCostPerSec(), 2);
 
   const pc = pcValue();
-  if($("pc")) $("pc").textContent = fmt(pc, 1);
-  if($("pcEffective")) $("pcEffective").textContent = fmt(pc / D, 2);
+  if($("pc")) $("pc").textContent = fmtBig(pc, 1);
+  if($("pcEffective")) $("pcEffective").textContent = fmtBig(pc / D, 2);
   const effectivePc = pc * getComboMult();
   if($("mineSub")) $("mineSub").textContent = _clickCombo > 1
-    ? `+${fmt(effectivePc / D, 2)} progresso/click (combo ×${fmt(getComboMult(), 2)})`
-    : `+${fmt(pc / D, 2)} progresso/click`;
+    ? `+${fmtBig(effectivePc / D, 2)} progresso/click (combo ×${fmt(getComboMult(), 2)})`
+    : `+${fmtBig(pc / D, 2)} progresso/click`;
 
   if($("fp")) $("fp").textContent = fmt(calcFP(state.blocksMined), 2);
   if($("forkBonus")) $("forkBonus").textContent = `+${fmt((state.fork.bonusMult - 1) * 100, 1)}%`;
@@ -1384,17 +1641,18 @@ function renderUI(){
   }
 
   renderAchievements();
+  renderMissions();
   renderLog();
   renderSpec();
 
   // stats render
-  if($("bestRunTag")) $("bestRunTag").textContent = `Recorde: ${fmt(stats.bestRunBlocks ?? 0, 0)}`;
+  if($("bestRunTag")) $("bestRunTag").textContent = `Recorde: ${fmtBig(stats.bestRunBlocks ?? 0)}`;
   if($("statTotalTime")) $("statTotalTime").textContent = fmtDur(stats.totalSeconds);
   if($("statRunTime")) $("statRunTime").textContent = fmtDur(stats.runSeconds);
-  if($("statClicks")) $("statClicks").textContent = fmt(stats.totalClicks, 0);
-  if($("statRunBlocks")) $("statRunBlocks").textContent = fmt(state.blocksMined, 0);
+  if($("statClicks")) $("statClicks").textContent = fmtBig(stats.totalClicks);
+  if($("statRunBlocks")) $("statRunBlocks").textContent = fmtBig(state.blocksMined);
   if($("statForks")) $("statForks").textContent = fmt(stats.totalForks, 0);
-  if($("statPeakSat")) $("statPeakSat").textContent = `${fmt(stats.peakSat, 0)} SAT`;
+  if($("statPeakSat")) $("statPeakSat").textContent = `${fmtBig(stats.peakSat)} SAT`;
 }
 
 // --------- offline ---------
@@ -1505,6 +1763,7 @@ function boot(){
   loadStats();
   loadAch();
   loadUIFlags();
+  loadMissions();
   applyAccess();
 
   initAudio();
@@ -1767,6 +2026,20 @@ document.querySelectorAll('[data-close="settings"]').forEach(el=>{
     renderLog();
   });
 
+  // PATCH 0.8 — resgate de missões (listener delegado)
+  if($("missionList")) $("missionList").addEventListener("click", (e)=>{
+    const btn = e.target.closest("[data-claim]");
+    if(btn) claimMission(btn.dataset.claim);
+  });
+
+  // PATCH 0.8 — tutorial
+  if($("tutorialNext")) $("tutorialNext").addEventListener("click", nextTutorialStep);
+  if($("tutorialSkip")) $("tutorialSkip").addEventListener("click", endTutorial);
+  if($("btnReplayTutorial")) $("btnReplayTutorial").addEventListener("click", ()=>{
+    closeSettings();
+    startTutorial();
+  });
+
   // keyboard shortcuts + ESC closes modals
   window.addEventListener("keydown", (e)=>{
     if(e.repeat) return;
@@ -1834,6 +2107,9 @@ document.querySelectorAll('[data-close="settings"]').forEach(el=>{
 
   if(state.log.length === 0) pushLog("🟢 Início da sessão");
   requestAnimationFrame(loop);
+
+  // PATCH 0.8 — tutorial de primeira sessão (após o primeiro render)
+  requestAnimationFrame(()=> maybeStartTutorial());
 }
 
 // ============================================

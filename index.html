@@ -14,7 +14,7 @@
   <header class="topbar">
     <div class="brand">
       <div class="brand-title">Proof of Strategy</div>
-      <div class="brand-sub muted">Hardcore miner clicker • Patch 0.7</div>
+      <div class="brand-sub muted">Hardcore miner clicker • Patch 0.8</div>
     </div>
 
     <div class="top-actions">
@@ -96,6 +96,18 @@
       </div>
       </section>
       <section class="col">
+<!-- Missions (Patch 0.8) -->
+      <div class="panel" id="missionsPanel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">🎯 Missões</div>
+            <div class="muted small">Objetivos com recompensa</div>
+          </div>
+          <div class="muted small"><span id="missionCount">0/0</span></div>
+        </div>
+        <div id="missionList" class="mission-list"></div>
+      </div>
+
 <!-- Effects HUD -->
       <div class="panel" id="fxPanel">
         <div class="panel-head">
@@ -224,6 +236,20 @@
   <!-- Toast -->
   <div id="toast" class="toast" hidden></div>
 
+  <!-- Tutorial guiado (Patch 0.8) -->
+  <div id="tutorialOverlay" hidden>
+    <div id="tutorialSpotlight"></div>
+    <div id="tutorialTip" class="tutorial-tip">
+      <div class="tutorial-step muted small" id="tutorialStepNum"></div>
+      <div class="tutorial-title" id="tutorialTitle"></div>
+      <div class="tutorial-text" id="tutorialText"></div>
+      <div class="tutorial-actions">
+        <button class="btn ghost" id="tutorialSkip">Pular</button>
+        <button class="btn primary" id="tutorialNext">Próximo</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Solo/Pool choice -->
   <div class="modal" id="choiceModal" hidden>
     <div class="modal-card">
@@ -297,6 +323,7 @@
             <div class="shortcut-row"><kbd>M</kbd><span>Ligar/desligar música</span></div>
             <div class="shortcut-row"><kbd>Esc</kbd><span>Fechar janelas</span></div>
           </div>
+          <button class="btn" id="btnReplayTutorial" style="margin-top:10px">🎓 Rever tutorial</button>
         </div>
 
         <div class="settings-section-sep"></div>
