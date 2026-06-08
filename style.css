@@ -771,3 +771,102 @@ kbd{
   border-color: var(--btc);
 }
 body.reduce-motion #btnFork.fork-attn{ animation:none; border-color: var(--btc); }
+
+/* =============================================
+   PATCH 0.8 — Onboarding & Progressão
+   ============================================= */
+
+/* Item 2 — card-fantasma de próximo desbloqueio na loja */
+.shop-item.shop-locked{
+  opacity:.65;
+  border-style:dashed;
+  border-color: rgba(247,147,26,.28);
+  background: rgba(247,147,26,.03);
+}
+.shop-item.shop-locked .shop-name{ color: var(--muted); }
+.shop-item.shop-locked .pill{
+  border-color: rgba(247,147,26,.30);
+  background: rgba(247,147,26,.06);
+}
+.shop-item.shop-locked .btn[disabled]{ opacity:.6; }
+
+/* Item 3 — Missões */
+.mission-list{ display:flex; flex-direction:column; gap:10px; }
+.mission-item{
+  padding:10px;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.02);
+  transition: border-color .2s, background .2s;
+}
+.mission-item.ready{
+  border-color: rgba(84,255,160,.40);
+  background: rgba(84,255,160,.05);
+}
+.mission-top{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.mission-name{ font-weight:800; font-size:13px; }
+.mission-reward{
+  font-size:11px;
+  font-weight:700;
+  padding:3px 8px;
+  border-radius:999px;
+  border:1px solid var(--btc-border);
+  background: rgba(247,147,26,.08);
+  color: var(--btc-soft);
+  white-space:nowrap;
+}
+.mission-desc{ font-size:12px; color:var(--muted); margin:4px 0 8px; }
+.mission-bar{
+  height:8px;
+  border-radius:999px;
+  background: rgba(255,255,255,.06);
+  overflow:hidden;
+  border:1px solid rgba(255,255,255,.10);
+}
+.mission-bar-fill{
+  height:100%;
+  width:0%;
+  background: linear-gradient(90deg, var(--btc), var(--btc-soft));
+  transition: width .25s ease;
+}
+.mission-item.ready .mission-bar-fill{
+  background: linear-gradient(90deg, #54ffa0, #aaffcc);
+}
+.mission-foot{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:8px; }
+.mission-prog{ font-size:12px; color:var(--muted); }
+.mission-claim{ font-size:12px; padding:6px 12px; }
+.mission-item.ready .mission-claim{
+  border-color: rgba(84,255,160,.45);
+  background: rgba(84,255,160,.12);
+  color:#54ffa0;
+}
+
+/* Item 4 — Tutorial guiado */
+#tutorialOverlay{ position:fixed; inset:0; z-index:50; }
+#tutorialOverlay[hidden]{ display:none; }
+#tutorialSpotlight{
+  position:fixed;
+  border-radius:14px;
+  box-shadow: 0 0 0 9999px rgba(0,0,0,.72), 0 0 0 2px var(--btc) inset;
+  outline: 2px solid var(--btc);
+  outline-offset: 0;
+  transition: all .25s ease;
+  pointer-events:none;
+}
+.tutorial-tip{
+  position:fixed;
+  width:320px;
+  max-width: calc(100vw - 24px);
+  padding:14px;
+  border-radius:16px;
+  border:1px solid var(--btc-border);
+  background: rgba(16,24,35,.98);
+  box-shadow: var(--shadow);
+  z-index:51;
+}
+.tutorial-step{ margin-bottom:4px; }
+.tutorial-title{ font-weight:900; font-size:16px; margin-bottom:6px; }
+.tutorial-text{ font-size:13px; color:var(--muted); line-height:1.45; }
+.tutorial-actions{ display:flex; justify-content:space-between; gap:10px; margin-top:14px; }
+.tutorial-actions .btn{ padding:8px 16px; }
+body.reduce-motion #tutorialSpotlight{ transition:none; }
