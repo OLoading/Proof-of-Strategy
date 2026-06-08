@@ -2507,6 +2507,16 @@ document.querySelectorAll('[data-close="settings"]').forEach(el=>{
     if(e.target === $("statsModal")) closeStatsModal();
   });
 
+  // PATCH 1.1 — créditos
+  if($("btnCredits")) $("btnCredits").addEventListener("click", ()=>{
+    if(typeof closeSettings === "function") closeSettings();
+    openCreditsModal();
+  });
+  if($("btnCloseCredits")) $("btnCloseCredits").addEventListener("click", closeCreditsModal);
+  if($("creditsModal")) $("creditsModal").addEventListener("click", (e)=>{
+    if(e.target === $("creditsModal")) closeCreditsModal();
+  });
+
   // keyboard shortcuts + ESC closes modals
   window.addEventListener("keydown", (e)=>{
     if(e.repeat) return;
@@ -2518,6 +2528,7 @@ document.querySelectorAll('[data-close="settings"]').forEach(el=>{
       if(!$("choiceModal")?.hidden) closeChoiceModal();
       if(!$("dailyModal")?.hidden) closeDailyModal();
       if(!$("statsModal")?.hidden) closeStatsModal();
+      if(!$("creditsModal")?.hidden) closeCreditsModal();
       return;
     }
 
@@ -2583,13 +2594,44 @@ document.querySelectorAll('[data-close="settings"]').forEach(el=>{
   // PATCH 0.8/0.9 — tutorial e bônus diário (após o primeiro render)
   updateDailyIndicator();
   updateBackupInfo();
-  requestAnimationFrame(()=>{
+
+  // PATCH 1.1 — esconde o splash e só então abre tutorial/daily
+  hideSplash(()=>{
     if(!uiFlags.tutorialDone){
       maybeStartTutorial();        // novato: tutorial primeiro; daily via botão 📅
     } else if(dailyAvailable()){
       openDailyModal();            // veterano: abre o bônus diário direto
     }
   });
+}
+
+// PATCH 1.1 — modal de créditos
+function openCreditsModal(){
+  const m = $("creditsModal");
+  if(!m) return;
+  m.hidden = false;
+  document.body.style.overflow = "hidden";
+}
+function closeCreditsModal(){
+  const m = $("creditsModal");
+  if(!m) return;
+  m.hidden = true;
+  document.body.style.overflow = "";
+}
+
+// PATCH 1.1 — splash de carregamento
+function hideSplash(then){
+  const el = $("splash");
+  const finish = ()=>{ if(typeof then === "function") then(); };
+  if(!el){ finish(); return; }
+  const delay = ACCESS.reduceMotion ? 0 : 650;
+  setTimeout(()=>{
+    el.classList.add("hide");
+    let done = false;
+    const cleanup = ()=>{ if(done) return; done = true; el.remove(); finish(); };
+    if(ACCESS.reduceMotion){ cleanup(); }
+    else { el.addEventListener("transitionend", cleanup, { once:true }); setTimeout(cleanup, 800); }
+  }, delay);
 }
 
 // ============================================

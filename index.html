@@ -70,10 +70,23 @@
     </defs>
   </svg>
 
+  <!-- Splash / loading (Patch 1.1) -->
+  <div id="splash" class="splash">
+    <div class="splash-inner">
+      <img class="splash-logo" src="./icon.svg" alt="" width="120" height="120"/>
+      <div class="splash-title">Proof of Strategy</div>
+      <div class="splash-sub">Hardcore Bitcoin Clicker</div>
+      <div class="splash-bar"><div class="splash-bar-fill"></div></div>
+    </div>
+  </div>
+
   <header class="topbar">
     <div class="brand">
-      <div class="brand-title">Proof of Strategy</div>
-      <div class="brand-sub muted">Hardcore miner clicker • Patch 1.0</div>
+      <img class="brand-mark" src="./icon.svg" alt="Proof of Strategy" width="40" height="40"/>
+      <div>
+        <div class="brand-title">Proof of Strategy</div>
+        <div class="brand-sub muted">Hardcore Bitcoin Clicker • Patch 1.1</div>
+      </div>
     </div>
 
     <div class="top-actions">
@@ -369,6 +382,40 @@
     </div>
   </div>
 
+  <!-- Créditos (Patch 1.1) -->
+  <div class="modal" id="creditsModal" hidden>
+    <div class="modal-card credits-card">
+      <div class="settings-head">
+        <div>
+          <div class="modal-title">Sobre o jogo</div>
+          <div class="modal-sub muted">Créditos & versão</div>
+        </div>
+        <button class="btn ghost" id="btnCloseCredits">✕</button>
+      </div>
+
+      <div class="credits-hero">
+        <img src="./icon.svg" alt="" width="72" height="72" class="credits-logo"/>
+        <div>
+          <div class="credits-name">Proof of Strategy</div>
+          <div class="muted small">Hardcore Bitcoin Clicker</div>
+          <div class="muted small">Versão 1.1 — lançamento de teste</div>
+        </div>
+      </div>
+
+      <p class="credits-text muted">
+        Um idle/clicker de mineração de Bitcoin: valide blocos, evolua sua operação,
+        sobreviva aos halvings e domine a chain. Construído em HTML/CSS/JS puro,
+        com áudio procedural e jogável offline (PWA).
+      </p>
+
+      <div class="credits-list">
+        <div class="credits-row"><span class="muted small">Game design & código</span><span>OLoading</span></div>
+        <div class="credits-row"><span class="muted small">Desenvolvimento assistido</span><span>Claude (Anthropic)</span></div>
+        <div class="credits-row"><span class="muted small">Tecnologia</span><span>Vanilla JS • Web Audio • SVG • PWA</span></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Solo/Pool choice -->
   <div class="modal" id="choiceModal" hidden>
     <div class="modal-card">
@@ -443,6 +490,7 @@
             <div class="shortcut-row"><kbd>Esc</kbd><span>Fechar janelas</span></div>
           </div>
           <button class="btn" id="btnReplayTutorial" style="margin-top:10px">🎓 Rever tutorial</button>
+          <button class="btn" id="btnCredits" style="margin-top:8px">ℹ️ Sobre o jogo / Créditos</button>
         </div>
 
         <div class="settings-section-sep"></div>
