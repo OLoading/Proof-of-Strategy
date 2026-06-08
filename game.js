@@ -118,6 +118,37 @@ function playSound(name){
   c.play().catch(()=>{});
 }
 
+// PATCH 1.0 — jingle épico sintetizado (Web Audio, sem arquivo)
+let _audioCtx = null;
+function getAudioCtx(){
+  if(_audioCtx) return _audioCtx;
+  try{ _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }catch{ _audioCtx = null; }
+  return _audioCtx;
+}
+function playEpicJingle(){
+  if(!AUDIO.enabled) return;
+  const ctx = getAudioCtx();
+  if(!ctx) return;
+  if(ctx.state === "suspended") ctx.resume().catch(()=>{});
+  const now = ctx.currentTime;
+  const notes = [523.25, 659.25, 783.99, 1046.50]; // C5 E5 G5 C6 (arpejo ascendente)
+  const master = ctx.createGain();
+  master.gain.value = clamp(AUDIO.volume, 0, 1) * 0.5;
+  master.connect(ctx.destination);
+  notes.forEach((f, i)=>{
+    const t = now + i * 0.10;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = "triangle";
+    osc.frequency.value = f;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.6, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+    osc.connect(g); g.connect(master);
+    osc.start(t); osc.stop(t + 0.4);
+  });
+}
+
 
 // ==================================================
 // SECTION: Música (ambiente)
@@ -916,8 +947,8 @@ function startEvent(ev){
   else if(rarity === "rare") stats.eventsRare = (stats.eventsRare || 0) + 1;
   else stats.eventsCommon = (stats.eventsCommon || 0) + 1;
 
-  // flash de tela para épicos
-  if(rarity === "epic") flashEpic();
+  // flash de tela + jingle especial para épicos
+  if(rarity === "epic"){ flashEpic(); playEpicJingle(); }
 
   // Instantâneo: limpa activeEvent e esconde tag após 1.2s
   if(ev.dur === 0){
