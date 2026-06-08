@@ -1,0 +1,28 @@
+{
+  "name": "Proof of Strategy",
+  "short_name": "PoS Miner",
+  "description": "Hardcore Bitcoin miner clicker — mine blocos, evolua sua operação e domine a chain.",
+  "id": "/",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#06080d",
+  "theme_color": "#f7931a",
+  "lang": "pt-BR",
+  "categories": ["games", "entertainment"],
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
