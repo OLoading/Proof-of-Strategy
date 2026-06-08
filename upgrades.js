@@ -265,8 +265,17 @@ window.UPGRADES = window.UPGRADES || [];
 // Eventos (básicos) — usado pelo game.js
 // ==================================================
 window.EVENTS = [
-  { id:"bull",  name:"Bull Run 📈",    dur:60, tag:"Bull Run +50% RB",   start:(s)=>{ s.temp.reward *= 1.5; } },
-  { id:"fud",   name:"FUD 📉",         dur:60, tag:"FUD -30% H/s",       start:(s)=>{ s.temp.hash *= 0.7; } },
-  { id:"fee",   name:"Taxa Alta ⚡",   dur:60, tag:"Energia +50% custo", start:(s)=>{ s.temp.energyCost *= 1.5; } },
-  { id:"lucky", name:"Lucky Block 🍀", dur:0,  tag:"Lucky: +50% progresso", start:(s)=>{ s.blockProgress += 50; } },
+  // === Eventos timed (dur > 0) ===
+  { id:"bull",        name:"Bull Run 📈",       dur:60, tag:"Bull Run +50% RB",      start:(s)=>{ s.temp.reward *= 1.5; } },
+  { id:"fud",         name:"FUD 📉",             dur:60, tag:"FUD -30% H/s",          start:(s)=>{ s.temp.hash *= 0.7; } },
+  { id:"fee",         name:"Taxa Alta ⚡",       dur:60, tag:"Energia +50% custo",    start:(s)=>{ s.temp.energyCost *= 1.5; } },
+  // PATCH 0.7 — novos eventos timed
+  { id:"hash_spike",  name:"Hash Spike ⚡",      dur:45, tag:"Hash Spike +40% H/s",   start:(s)=>{ s.temp.hash *= 1.4; } },
+  { id:"power_surge", name:"Power Surge 🔋",     dur:30, tag:"Power Surge -40% ⚡",   start:(s)=>{ s.temp.energyCost *= 0.6; } },
+
+  // === Eventos instantâneos (dur:0) ===
+  { id:"lucky",       name:"Lucky Block 🍀",     dur:0,  tag:"Lucky: +50% progresso", start:(s)=>{ s.blockProgress = Math.min(s.blockProgress + 50, 99.9); } },
+  // PATCH 0.7 — novos instantâneos
+  { id:"whale_alert", name:"Whale Alert 🐳",     dur:0,  tag:"Whale: +500 SAT!",      start:(s)=>{ s.sat += 500; } },
+  { id:"net_fork",    name:"Network Fork 🍴",    dur:0,  tag:"Net Fork: +20% progresso", start:(s)=>{ s.blockProgress = Math.min(s.blockProgress + 20, 99.9); } },
 ];

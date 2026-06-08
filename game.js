@@ -182,7 +182,8 @@ function freshStats(){
     totalClicks: 0,
     bestRunBlocks: 0,
     totalForks: 0,
-    peakSat: 0
+    peakSat: 0,
+    totalEvents: 0,   // Patch 0.7 — para conquista event_veteran
   };
 }
 let stats = freshStats();
@@ -246,6 +247,9 @@ function freshState(){
     choiceLastBlock: 0,
     choiceCooldownUntilBlock: 0,
 
+    // PATCH 0.7 — flags de conquistas
+    hadNegativeSat: false,   // true quando SAT já ficou < 0 nessa run
+
     lastTick: Date.now(),
     lastSave: Date.now(),
     lastAutoClick: Date.now(),
@@ -274,13 +278,56 @@ function saveAch(){
   try{ localStorage.setItem(ACH_KEY, JSON.stringify({ unlocked: achUnlocked })); }catch{}
 }
 
+// ==================================================
+// PATCH 0.7 — E2: flags de UI (dicas de primeiro uso)
+// Persistem em localStorage próprio; sobrevivem a Fork/Reset.
+// ==================================================
+const UIFLAGS_KEY = "pos_uiflags_v1";
+let uiFlags = {};   // { forkHintSeen: true, ... }
+function loadUIFlags(){
+  try{
+    const raw = localStorage.getItem(UIFLAGS_KEY);
+    if(raw) uiFlags = JSON.parse(raw) || {};
+  }catch{}
+}
+function saveUIFlags(){
+  try{ localStorage.setItem(UIFLAGS_KEY, JSON.stringify(uiFlags)); }catch{}
+}
+
 const ACHIEVEMENTS = [
-  { id:"first_block", name:"Primeiro bloco", desc:"Valide 1 bloco.", check:(s)=> s.blocksMined >= 1 },
-  { id:"ten_blocks", name:"Dez blocos", desc:"Valide 10 blocos.", check:(s)=> s.blocksMined >= 10 },
-  { id:"first_halving", name:"Primeiro Halving", desc:"Chegue ao primeiro halving (75 blocos).", check:(s)=> s.blocksMined >= 75 },
-  { id:"choice_made", name:"Decisão tomada", desc:"Escolha Solo ou Pool no bloco 100.", check:(s)=> !!s.path },
-  { id:"one_btc", name:"1 BTC acumulado", desc:"Chegue a 1 BTC em SAT (saldo atual).", check:(s)=> s.sat >= CONFIG.SAT_PER_BTC },
-  { id:"fork_ready", name:"Pronto pro Fork", desc:"Desbloqueie Hard Fork (200 blocos).", check:(s)=> s.blocksMined >= CONFIG.fork.minBlocks },
+  // === Blocos ===
+  { id:"first_block",   name:"Primeiro Bloco",      desc:"Valide seu primeiro bloco na chain.",          check:(s)=> s.blocksMined >= 1 },
+  { id:"ten_blocks",    name:"Dez Blocos",           desc:"Valide 10 blocos.",                            check:(s)=> s.blocksMined >= 10 },
+  { id:"blocks_25",     name:"Minerador em Série",   desc:"Valide 25 blocos seguidos.",                   check:(s)=> s.blocksMined >= 25 },
+  { id:"first_halving", name:"Primeiro Halving",     desc:"Chegue ao primeiro halving (75 blocos).",      check:(s)=> s.blocksMined >= 75 },
+  { id:"blocks_150",    name:"Mineiro Sério",        desc:"Valide 150 blocos.",                           check:(s)=> s.blocksMined >= 150 },
+  { id:"fork_ready",    name:"Pronto pro Fork",      desc:"Desbloqueie o Hard Fork (200 blocos).",        check:(s)=> s.blocksMined >= CONFIG.fork.minBlocks },
+  { id:"blocks_500",    name:"Veterano da Chain",    desc:"Valide 500 blocos. Você está comprometido.",   check:(s)=> s.blocksMined >= 500 },
+
+  // === Riqueza ===
+  { id:"sat_10k",   name:"Primeiros 10K",      desc:"Acumule 10.000 SAT de saldo.",                  check:(s)=> s.sat >= 10_000 },
+  { id:"sat_100k",  name:"Centena K",          desc:"Acumule 100.000 SAT de saldo.",                 check:(s)=> s.sat >= 100_000 },
+  { id:"sat_500k",  name:"Meio Milhão",        desc:"Acumule 500.000 SAT de saldo.",                 check:(s)=> s.sat >= 500_000 },
+  { id:"one_btc",   name:"1 BTC Acumulado",    desc:"Chegue a 1 BTC em SAT (saldo atual).",          check:(s)=> s.sat >= CONFIG.SAT_PER_BTC },
+
+  // === Hard Fork ===
+  { id:"choice_made", name:"Decisão Tomada",   desc:"Escolha Solo ou Pool no bloco 100.",            check:(s)=> !!s.path },
+  { id:"first_fork",  name:"Hard Forker",      desc:"Execute seu primeiro Hard Fork.",               check:(s)=> (s.fork?.totalForks ?? 0) >= 1 },
+  { id:"fork_5",      name:"Multiverse",       desc:"Execute 5 Hard Forks. A chain nunca acaba.",   check:(s)=> (s.fork?.totalForks ?? 0) >= 5 },
+
+  // === Cliques ===
+  { id:"click_100",  name:"Clicador Iniciante", desc:"100 cliques registrados.",                     check:()=> stats.totalClicks >= 100 },
+  { id:"click_1k",   name:"Clicador Hardcore",  desc:"1.000 cliques registrados.",                  check:()=> stats.totalClicks >= 1_000 },
+  { id:"click_10k",  name:"Lenda do Mouse",     desc:"10.000 cliques. Seus dedos agradecem.",       check:()=> stats.totalClicks >= 10_000 },
+
+  // === Upgrades & Spec ===
+  { id:"upgrades_5",  name:"Comprador Técnico",   desc:"Compre 5 upgrades no total.",               check:(s)=> Object.values(s.owned||{}).reduce((a,b)=>a+(b||0),0) >= 5 },
+  { id:"upgrades_10", name:"Arsenal Completo",    desc:"Compre 10 upgrades no total.",              check:(s)=> Object.values(s.owned||{}).reduce((a,b)=>a+(b||0),0) >= 10 },
+  { id:"first_spec",  name:"Especialista",        desc:"Desbloqueie o primeiro perk de especialização.", check:(s)=>{ const e=Object.values(s.spec?.eng||{}).reduce((a,b)=>a+(b||0),0); const m=Object.values(s.spec?.max||{}).reduce((a,b)=>a+(b||0),0); return e+m >= 1; } },
+
+  // === Eventos & Sobrevivência ===
+  { id:"event_veteran",    name:"Veterano de Eventos",  desc:"Sobreviva a 10 eventos na rede.",      check:()=> (stats.totalEvents||0) >= 10 },
+  { id:"deficit_survivor", name:"Sobrevivente",         desc:"Recupere seu saldo depois de ficar negativo (SAT < 0).", check:(s)=> s.hadNegativeSat && s.sat > 0 },
 ];
 
 function pushLog(msg){
@@ -428,14 +475,16 @@ function buySpec(tree, id){
 // PATCH 0.6 P2 — Choice FX (multiplicadores temporários por blocos)
 // ==================================================
 function choiceFxMults(){
-  const m = { pcMul:1, difficultyMul:1, energyCostMul:1, satRateMul:1 };
+  // Patch 0.7: adicionado hashMul para evento mining_competition
+  const m = { pcMul:1, hashMul:1, difficultyMul:1, energyCostMul:1, satRateMul:1 };
   const list = Array.isArray(state.choiceFx) ? state.choiceFx : [];
   for(const it of list){
     const fx = it.fx || {};
-    if(typeof fx.pcMul === "number") m.pcMul *= fx.pcMul;
+    if(typeof fx.pcMul         === "number") m.pcMul         *= fx.pcMul;
+    if(typeof fx.hashMul       === "number") m.hashMul       *= fx.hashMul;
     if(typeof fx.difficultyMul === "number") m.difficultyMul *= fx.difficultyMul;
     if(typeof fx.energyCostMul === "number") m.energyCostMul *= fx.energyCostMul;
-    if(typeof fx.satRateMul === "number") m.satRateMul *= fx.satRateMul;
+    if(typeof fx.satRateMul    === "number") m.satRateMul    *= fx.satRateMul;
   }
   return m;
 }
@@ -471,7 +520,8 @@ function pcValue(){
   return state.pcBase * state.mult.pc * state.temp.pc * state.fork.bonusMult * fx.pcMul;
 }
 function hashValue(deficit){
-  const h = state.hashBase * state.mult.hash * state.temp.hash * state.fork.bonusMult;
+  const fx = choiceFxMults();
+  const h = state.hashBase * state.mult.hash * state.temp.hash * state.fork.bonusMult * fx.hashMul;
   if(deficit && !state.features.noDeficitPenalty) return h * CONFIG.energy.deficitPenaltyHashrateMult;
   return h;
 }
@@ -483,6 +533,22 @@ function nextHalvingIn(){
   return CONFIG.block.halvingEveryBlocks - mod;
 }
 function canFork(){ return state.blocksMined >= CONFIG.fork.minBlocks; }
+
+// PATCH 0.7 — E2: dica de primeiro uso do Hard Fork
+function maybeShowForkHint(){
+  const btn = $("btnFork");
+  if(!btn) return;
+  // só na PRIMEIRA vez que o fork fica disponível, sem nenhum fork ainda
+  if(canFork() && (state.fork?.totalForks ?? 0) === 0 && !uiFlags.forkHintSeen){
+    uiFlags.forkHintSeen = true;
+    saveUIFlags();
+    btn.classList.add("fork-attn");
+    toast("🧨 Hard Fork liberado! Troque o progresso por bônus permanente.");
+    pushLog("🧨 Hard Fork disponível: reinicia a run em troca de FP e bônus permanente.");
+  }
+  // remove o destaque assim que o jogador forka pela primeira vez
+  if((state.fork?.totalForks ?? 0) > 0) btn.classList.remove("fork-attn");
+}
 function calcFP(blocks){ return Math.sqrt(blocks / 10); }
 
 // --------- ROI ---------
@@ -554,10 +620,11 @@ function clearTemp(){
 function reapplyActiveEvent(){
   if(!state.activeEvent) return;
   const ev = EVENTS.find(e => e.id === state.activeEvent.id);
-  if(ev && ev.id !== "lucky") ev.start(state);
+  // Patch 0.7: usa dur>0 em vez de id!=="lucky" — cobre todos os instantâneos
+  if(ev && ev.dur > 0) ev.start(state);
 }
 function startEvent(ev){
-  if(ev.id !== "lucky"){
+  if(ev.dur > 0){
     state.activeEvent = { id: ev.id, endsAt: Date.now() + ev.dur * 1000 };
   }
   ev.start(state);
@@ -568,11 +635,16 @@ function startEvent(ev){
   toast(ev.name);
   playSound("event");
   pushLog(`✨ Evento: ${ev.name}`);
+  stats.totalEvents = (stats.totalEvents || 0) + 1;
 
-  if(ev.id === "lucky"){
+  // Instantâneo: limpa activeEvent e esconde tag após 1.2s
+  if(ev.dur === 0){
     state.activeEvent = null;
     setTimeout(()=>{ if($("eventTag")) $("eventTag").hidden = true; }, 1200);
   }
+  // A3: chuva de ₿ apenas no Bull Run
+  if(ev.id === "bull") startBitcoinRain();
+  else stopBitcoinRain();
 }
 function maybeTriggerEvent(){
   if(Math.random() >= CONFIG.block.eventChancePerBlock) return;
@@ -584,9 +656,12 @@ function maybeTriggerEvent(){
 function updateEvent(){
   if(!state.activeEvent) return;
   if(Date.now() >= state.activeEvent.endsAt){
+    const wasRain = state.activeEvent.id === "bull";
     state.activeEvent = null;
     clearTemp();
     if($("eventTag")) $("eventTag").hidden = true;
+    // A3: para rain quando Bull Run termina
+    if(wasRain) stopBitcoinRain();
     pushLog("⏱️ Evento terminou");
     toast("Evento terminou");
   }
@@ -658,6 +733,79 @@ const CHOICE_EVENTS = [
         state.mult.reward *= 1.10;
         state.mult.difficulty *= 1.04;
         pushLog("🧱 Reforço aplicado: +10% RB e +4% D permanentes.");
+      },
+    },
+  },
+
+  // === PATCH 0.7 — 3 novos eventos com escolha ===
+  {
+    id: "regulation",
+    title: "Pressão Regulatória",
+    desc: "Autoridades exigem conformidade. Pagar agora evita sanções maiores.",
+    a: {
+      name: "Pagar a multa",
+      tag: "Conformidade",
+      lines: ["-10% do SAT atual (mín. 50 SAT)", "Sem penalidade de dificuldade"],
+      apply: () => {
+        const fine = Math.max(50, Math.floor(state.sat * 0.10));
+        state.sat -= fine;
+        pushLog(`🏛️ Multa paga: ${fine} SAT. Operação regularizada.`);
+      },
+    },
+    b: {
+      name: "Ignorar e continuar",
+      tag: "Risco",
+      lines: ["+30% dificuldade por 20 blocos"],
+      apply: () => {
+        addChoiceFx("reg_ignore", 20, { difficultyMul: 1.30 });
+        pushLog("⚠️ Regulação ignorada: +30% D por 20 blocos.");
+      },
+    },
+  },
+  {
+    id: "mining_competition",
+    title: "Competição de Mining",
+    desc: "Uma pool abriu vagas. Você pode aderir ou competir diretamente.",
+    a: {
+      name: "Entrar na pool",
+      tag: "Estável",
+      lines: ["+15% H/s por 25 blocos", "-10% RB por 25 blocos"],
+      apply: () => {
+        addChoiceFx("pool_join", 25, { hashMul: 1.15, satRateMul: 0.90 });
+        pushLog("🤝 Pool aderida: +15% H/s e -10% RB por 25 blocos.");
+      },
+    },
+    b: {
+      name: "Competir solo",
+      tag: "Agressivo",
+      lines: ["+20% RB por 25 blocos", "+15% dificuldade por 25 blocos"],
+      apply: () => {
+        addChoiceFx("solo_comp", 25, { satRateMul: 1.20, difficultyMul: 1.15 });
+        pushLog("🔴 Competindo solo: +20% RB e +15% D por 25 blocos.");
+      },
+    },
+  },
+  {
+    id: "hw_offer",
+    title: "Oferta de Hardware",
+    desc: "Um lote de equipamentos está disponível por tempo limitado.",
+    a: {
+      name: "Comprar o lote",
+      tag: "Investimento",
+      lines: ["-500 SAT", "+25% H/s permanente"],
+      apply: () => {
+        state.sat -= 500;
+        state.mult.hash *= 1.25;
+        pushLog("🔧 Hardware adquirido: -500 SAT, +25% H/s permanente.");
+      },
+    },
+    b: {
+      name: "Recusar a oferta",
+      tag: "Conservador",
+      lines: ["+10% RB permanente"],
+      apply: () => {
+        state.mult.reward *= 1.10;
+        pushLog("🧊 Oferta recusada: +10% RB permanente como alternativa.");
       },
     },
   },
@@ -782,10 +930,11 @@ function renderChoiceFxHUD(){
   for(const it of list){
     const fx = it.fx || {};
     const pills = [];
-    if(typeof fx.pcMul === "number" && fx.pcMul !== 1) pills.push(pill(`PC ×${fx.pcMul.toFixed(2)}`));
+    if(typeof fx.pcMul         === "number" && fx.pcMul         !== 1) pills.push(pill(`PC ×${fx.pcMul.toFixed(2)}`));
+    if(typeof fx.hashMul       === "number" && fx.hashMul       !== 1) pills.push(pill(`H/s ×${fx.hashMul.toFixed(2)}`));
     if(typeof fx.difficultyMul === "number" && fx.difficultyMul !== 1) pills.push(pill(`D ×${fx.difficultyMul.toFixed(2)}`));
     if(typeof fx.energyCostMul === "number" && fx.energyCostMul !== 1) pills.push(pill(`⚡ ×${fx.energyCostMul.toFixed(2)}`));
-    if(typeof fx.satRateMul === "number" && fx.satRateMul !== 1) pills.push(pill(`SAT/s ×${fx.satRateMul.toFixed(2)}`));
+    if(typeof fx.satRateMul    === "number" && fx.satRateMul    !== 1) pills.push(pill(`SAT/s ×${fx.satRateMul.toFixed(2)}`));
 
     const row = document.createElement("div");
     row.className = "fx-row";
@@ -955,26 +1104,124 @@ function onBlockMined(){
     pushLog(`🪓 Halving aplicado (blocos: ${state.blocksMined})`);
   }
 
+  // D2: halving warning — aviso quando ≤5 blocos para o próximo halving
+  const halvLeft = nextHalvingIn();
+  if(halvLeft <= 5 && halvLeft > 0){
+    toast(`⚠️ Halving em ${halvLeft} bloco${halvLeft > 1 ? "s" : ""}!`);
+  }
+
+  // D3: mini-milestone a cada 25 blocos (exceto nos halvings que já têm aviso)
+  if(state.blocksMined % 25 === 0 && state.blocksMined % CONFIG.block.halvingEveryBlocks !== 0){
+    const bonus = Math.floor(50 + state.blocksMined * 0.5);
+    state.sat += bonus;
+    toast(`🏅 Marco: ${state.blocksMined} blocos! +${bonus} SAT`);
+    pushLog(`🏅 Mini-marco atingido: ${state.blocksMined} blocos — bônus de +${bonus} SAT!`);
+  }
+
   if(state.blocksMined >= 100 && !state.path){
     pushLog("🧭 Decisão disponível: Solo vs Pool");
     openChoiceModal();
   }
 }
 
+// ==================================================
+// PATCH 0.7 — D1: Click Combo System
+// ==================================================
+let _clickCombo = 0;
+let _lastClickTime = 0;
+const COMBO_TIMEOUT_MS = 1500;
+const COMBO_MAX = 8;
+
+function getComboMult(){
+  // 1.0 → 2.0 linear across 0→COMBO_MAX
+  return 1.0 + (_clickCombo / COMBO_MAX);
+}
+
+function updateComboDisplay(){
+  const el = $("comboDisplay");
+  if(!el) return;
+  if(_clickCombo <= 1){ el.hidden = true; return; }
+  el.hidden = false;
+  const mult = getComboMult();
+  el.className = "combo-display" + (_clickCombo >= COMBO_MAX ? " max" : "");
+  el.textContent = `⚡ COMBO ×${fmt(mult, 2)} (${_clickCombo} cliques)`;
+  // retrigger animation
+  el.style.animation = "none";
+  void el.offsetWidth;
+  el.style.animation = "";
+}
+
+// ==================================================
+// PATCH 0.7 — A2: Partículas flutuantes ₿
+// ==================================================
+function spawnParticle(x, y){
+  if(ACCESS.reduceMotion) return;
+  const canvas = $("particleCanvas");
+  if(!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  const el = document.createElement("span");
+  el.className = "btc-particle";
+  el.textContent = "₿";
+  const dx = (Math.random() - 0.5) * 80;
+  const dy = -(40 + Math.random() * 60);
+  const rot = (Math.random() - 0.5) * 40 + "deg";
+  const dur = (0.6 + Math.random() * 0.5) + "s";
+  el.style.cssText = `left:${x - rect.left}px;top:${y - rect.top}px;--dx:${dx}px;--dy:${dy}px;--rot:${rot};--dur:${dur};`;
+  canvas.appendChild(el);
+  el.addEventListener("animationend", ()=> el.remove(), { once:true });
+}
+
+// ==================================================
+// PATCH 0.7 — A3: Bitcoin rain durante Bull Run
+// ==================================================
+let _rainInterval = null;
+function startBitcoinRain(){
+  if(ACCESS.reduceMotion) return;
+  stopBitcoinRain();
+  _rainInterval = setInterval(()=>{
+    const el = document.createElement("span");
+    el.className = "rain-coin";
+    el.textContent = "₿";
+    el.style.left = (Math.random() * 100) + "vw";
+    el.style.animationDuration = (2.5 + Math.random() * 3) + "s";
+    el.style.fontSize = (14 + Math.random() * 14) + "px";
+    el.style.opacity = (0.4 + Math.random() * 0.5);
+    document.body.appendChild(el);
+    el.addEventListener("animationend", ()=> el.remove(), { once:true });
+  }, 280);
+}
+function stopBitcoinRain(){
+  if(_rainInterval){ clearInterval(_rainInterval); _rainInterval = null; }
+  document.querySelectorAll(".rain-coin").forEach(el => el.remove());
+}
+
 function clickMine(){
   stats.totalClicks += 1;
 
+  // D1: combo tracking
+  const now = Date.now();
+  if(now - _lastClickTime <= COMBO_TIMEOUT_MS){
+    _clickCombo = Math.min(_clickCombo + 1, COMBO_MAX);
+  } else {
+    _clickCombo = 1;
+  }
+  _lastClickTime = now;
+  updateComboDisplay();
+
   const D = currentDifficulty();
-  const p = pcValue();
+  const p = pcValue() * getComboMult();
   addProgress(p / D);
 
   playSound("click");
   if(MUSIC.enabled) startMusic();
 
+  // A2: partícula no botão
   const bm = $("btnMine");
   if(bm){
-    bm.style.transform = "translateY(1px)";
-    setTimeout(()=> bm.style.transform = "", 60);
+    const r = bm.getBoundingClientRect();
+    spawnParticle(r.left + r.width/2, r.top + r.height/2);
+    bm.style.transform = "translateY(1px) scale(.97)";
+    setTimeout(()=> bm.style.transform = "", 80);
   }
 }
 
@@ -986,6 +1233,7 @@ function update(dt){
   if(state.sat > stats.peakSat) stats.peakSat = state.sat;
 
   const deficit = state.sat < 0;
+  if(deficit && !state.hadNegativeSat) state.hadNegativeSat = true;
   if($("profitTag")) $("profitTag").hidden = !deficit;
 
   const D = currentDifficulty();
@@ -999,6 +1247,12 @@ function update(dt){
       state.lastAutoClick = Date.now();
       addProgress(pcValue() / D);
     }
+  }
+
+  // D1: reset combo if idle too long
+  if(_clickCombo > 0 && Date.now() - _lastClickTime > COMBO_TIMEOUT_MS){
+    _clickCombo = 0;
+    updateComboDisplay();
   }
 
   if(Date.now() - state.lastSave >= CONFIG.autosaveMs){
@@ -1087,9 +1341,16 @@ function renderUI(){
 
   if($("blockPct")) $("blockPct").textContent = fmt(state.blockProgress, 1);
   if($("progressBar")) $("progressBar").style.width = `${clamp(state.blockProgress, 0, 100)}%`;
+  // A4: pulso visual quando progresso > 85%
+  const wrap = $("progressBarWrap");
+  if(wrap) wrap.classList.toggle("near-complete", state.blockProgress >= 85);
 
   if($("blocksMined")) $("blocksMined").textContent = fmt(state.blocksMined, 0);
-  if($("nextHalving")) $("nextHalving").textContent = fmt(nextHalvingIn(), 0);
+  const halvLeft = nextHalvingIn();
+  if($("nextHalving")) $("nextHalving").textContent = fmt(halvLeft, 0);
+  // D2: destaque visual no stat de Blocos quando halving está próximo
+  const halvStat = $("halvingStat");
+  if(halvStat) halvStat.classList.toggle("halving-soon", halvLeft <= 5);
 
   const deficit = state.sat < 0;
   const h = hashValue(deficit);
@@ -1104,11 +1365,15 @@ function renderUI(){
   const pc = pcValue();
   if($("pc")) $("pc").textContent = fmt(pc, 1);
   if($("pcEffective")) $("pcEffective").textContent = fmt(pc / D, 2);
-  if($("mineSub")) $("mineSub").textContent = `+${fmt(pc / D, 2)} progresso/click`;
+  const effectivePc = pc * getComboMult();
+  if($("mineSub")) $("mineSub").textContent = _clickCombo > 1
+    ? `+${fmt(effectivePc / D, 2)} progresso/click (combo ×${fmt(getComboMult(), 2)})`
+    : `+${fmt(pc / D, 2)} progresso/click`;
 
   if($("fp")) $("fp").textContent = fmt(calcFP(state.blocksMined), 2);
   if($("forkBonus")) $("forkBonus").textContent = `+${fmt((state.fork.bonusMult - 1) * 100, 1)}%`;
   if($("btnFork")) $("btnFork").disabled = !canFork();
+  maybeShowForkHint();
 
   if(state.activeEvent){
     const ev = EVENTS.find(x => x.id === state.activeEvent.id);
@@ -1239,6 +1504,7 @@ function boot(){
   loadAccess();
   loadStats();
   loadAch();
+  loadUIFlags();
   applyAccess();
 
   initAudio();
