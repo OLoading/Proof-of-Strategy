@@ -946,3 +946,32 @@ body.reduce-motion #btnDaily.has-bonus{ animation:none; }
 }
 .daily-reward-value{ font-weight:900; font-size:18px; color:var(--btc-soft); }
 .daily-foot .btn.primary{ padding:10px 22px; }
+
+/* Item 3 — Raridade de eventos */
+.pill.event-rare{
+  border-color: rgba(120,170,255,.5);
+  background: rgba(120,170,255,.12);
+  color:#bcd4ff;
+}
+.pill.event-epic{
+  border-color: rgba(214,140,255,.6);
+  background: rgba(214,140,255,.14);
+  color:#ecc6ff;
+  font-weight:800;
+  box-shadow: 0 0 12px rgba(214,140,255,.25);
+}
+@keyframes epic-flash-kf{
+  0%   { opacity:0; }
+  25%  { opacity:1; }
+  100% { opacity:0; }
+}
+.epic-flash{
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+  z-index:40;
+  background:
+    radial-gradient(120% 80% at 50% 50%, rgba(214,140,255,0) 55%, rgba(214,140,255,.30) 100%);
+  animation: epic-flash-kf .9s ease-out forwards;
+}
+body.reduce-motion .epic-flash{ display:none; }

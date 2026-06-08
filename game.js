@@ -884,45 +884,74 @@ function reapplyActiveEvent(){
   // Patch 0.7: usa dur>0 em vez de id!=="lucky" — cobre todos os instantâneos
   if(ev && ev.dur > 0) ev.start(state);
 }
+const RARITY_LABEL = { common: "", rare: "⭐ RARO", epic: "💎 ÉPICO" };
 function startEvent(ev){
+  const rarity = ev.rarity || "common";
   if(ev.dur > 0){
     state.activeEvent = { id: ev.id, endsAt: Date.now() + ev.dur * 1000 };
   }
   ev.start(state);
   if($("eventTag")){
     $("eventTag").hidden = false;
-    $("eventTag").textContent = ev.tag;
+    $("eventTag").textContent = (RARITY_LABEL[rarity] ? RARITY_LABEL[rarity] + " • " : "") + ev.tag;
+    $("eventTag").className = `pill event-${rarity}`;
   }
-  toast(ev.name);
+  const prefix = rarity === "epic" ? "💎 ÉPICO! " : rarity === "rare" ? "⭐ Raro! " : "";
+  toast(prefix + ev.name);
   playSound("event");
-  pushLog(`✨ Evento: ${ev.name}`);
+  pushLog(`${rarity === "epic" ? "💎" : rarity === "rare" ? "⭐" : "✨"} Evento${rarity !== "common" ? ` (${rarity})` : ""}: ${ev.name}`);
   stats.totalEvents = (stats.totalEvents || 0) + 1;
+
+  // flash de tela para épicos
+  if(rarity === "epic") flashEpic();
 
   // Instantâneo: limpa activeEvent e esconde tag após 1.2s
   if(ev.dur === 0){
     state.activeEvent = null;
     setTimeout(()=>{ if($("eventTag")) $("eventTag").hidden = true; }, 1200);
   }
-  // A3: chuva de ₿ apenas no Bull Run
-  if(ev.id === "bull") startBitcoinRain();
-  else stopBitcoinRain();
+
+  // A3/0.9: chuva de ₿ no Bull Run e em qualquer evento épico
+  if(ev.id === "bull" || rarity === "epic"){
+    startBitcoinRain();
+    if(ev.dur === 0) setTimeout(stopBitcoinRain, 3000); // épico instantâneo: rajada curta
+  } else {
+    stopBitcoinRain();
+  }
+}
+// PATCH 0.9 — flash visual para eventos épicos
+function flashEpic(){
+  if(ACCESS.reduceMotion) return;
+  const el = document.createElement("div");
+  el.className = "epic-flash";
+  document.body.appendChild(el);
+  el.addEventListener("animationend", ()=> el.remove(), { once:true });
+}
+// PATCH 0.9 — seleção ponderada por raridade
+const RARITY_WEIGHTS = { common: 75, rare: 20, epic: 5 };
+function pickWeightedEvent(){
+  const r = Math.random() * 100;
+  const tier = r < RARITY_WEIGHTS.common ? "common"
+             : r < (RARITY_WEIGHTS.common + RARITY_WEIGHTS.rare) ? "rare"
+             : "epic";
+  const pool = EVENTS.filter(e => (e.rarity || "common") === tier);
+  if(!pool.length) return EVENTS[Math.floor(Math.random() * EVENTS.length)];
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 function maybeTriggerEvent(){
   if(Math.random() >= CONFIG.block.eventChancePerBlock) return;
   state.activeEvent = null;           // evita empilhar com um evento anterior ainda ativo
   clearTemp();
-  const ev = EVENTS[Math.floor(Math.random() * EVENTS.length)];
-  startEvent(ev);
+  startEvent(pickWeightedEvent());
 }
 function updateEvent(){
   if(!state.activeEvent) return;
   if(Date.now() >= state.activeEvent.endsAt){
-    const wasRain = state.activeEvent.id === "bull";
     state.activeEvent = null;
     clearTemp();
-    if($("eventTag")) $("eventTag").hidden = true;
-    // A3: para rain quando Bull Run termina
-    if(wasRain) stopBitcoinRain();
+    if($("eventTag")){ $("eventTag").hidden = true; $("eventTag").className = "pill"; }
+    // 0.9: garante parar a chuva (Bull Run ou épicos timed)
+    stopBitcoinRain();
     pushLog("⏱️ Evento terminou");
     toast("Evento terminou");
   }
@@ -1745,8 +1774,10 @@ function renderUI(){
   if(state.activeEvent){
     const ev = EVENTS.find(x => x.id === state.activeEvent.id);
     if(ev && $("eventTag")){
+      const rarity = ev.rarity || "common";
       $("eventTag").hidden = false;
-      $("eventTag").textContent = ev.tag;
+      $("eventTag").textContent = (RARITY_LABEL[rarity] ? RARITY_LABEL[rarity] + " • " : "") + ev.tag;
+      $("eventTag").className = `pill event-${rarity}`;
     }
   }
 
