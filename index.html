@@ -34,6 +34,42 @@
 </head>
 <body>
 
+  <!-- Sprite de ícones SVG (Patch 1.1) — usados via <svg><use href="#ic-..."></use></svg> -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="ic-click" viewBox="0 0 24 24">
+        <path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"
+              d="M6 3l13 7-5.5 1.8L17 18l-2.4 1.1-3.4-5.3L7 17z"/>
+      </symbol>
+      <symbol id="ic-machines" viewBox="0 0 24 24">
+        <rect x="7" y="7" width="10" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+        <rect x="10" y="10" width="4" height="4" rx="1" fill="currentColor"/>
+        <g stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M9.5 4v3M14.5 4v3M9.5 17v3M14.5 17v3M4 9.5h3M4 14.5h3M17 9.5h3M17 14.5h3"/>
+        </g>
+      </symbol>
+      <symbol id="ic-eff" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M13 2L4 14h6l-1 8 9-12h-6z"/>
+      </symbol>
+      <symbol id="ic-net" viewBox="0 0 24 24">
+        <g stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M6 7l12 0M6 7l4 10M18 7l-4 10"/>
+        </g>
+        <g fill="currentColor">
+          <circle cx="6" cy="7" r="2.6"/><circle cx="18" cy="7" r="2.6"/><circle cx="12" cy="18" r="2.6"/>
+        </g>
+      </symbol>
+      <symbol id="ic-star" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.9 6.6 19.5l1.2-6L3.3 9.3l6.1-.7z"/>
+      </symbol>
+      <symbol id="ic-gem" viewBox="0 0 24 24">
+        <path fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"
+              d="M7 4h10l4 5-9 11L3 9z"/>
+        <path fill="rgba(255,255,255,.25)" d="M7 4h10l-5 5z"/>
+      </symbol>
+    </defs>
+  </svg>
+
   <header class="topbar">
     <div class="brand">
       <div class="brand-title">Proof of Strategy</div>
@@ -167,10 +203,10 @@
             <div class="muted small">Com ROI real estimado (quando aplicável)</div>
           </div>
           <div class="tabs">
-            <button class="tab active" data-tab="click">Clique</button>
-            <button class="tab" data-tab="machines">Máquinas</button>
-            <button class="tab" data-tab="eff">Eficiência</button>
-            <button class="tab" data-tab="net">Rede</button>
+            <button class="tab active" data-tab="click"><svg class="tab-ic"><use href="#ic-click"/></svg>Clique</button>
+            <button class="tab" data-tab="machines"><svg class="tab-ic"><use href="#ic-machines"/></svg>Máquinas</button>
+            <button class="tab" data-tab="eff"><svg class="tab-ic"><use href="#ic-eff"/></svg>Eficiência</button>
+            <button class="tab" data-tab="net"><svg class="tab-ic"><use href="#ic-net"/></svg>Rede</button>
           </div>
         </div>
         <div id="shopList"></div>
@@ -327,8 +363,8 @@
       <div class="stats-rarity">
         <div class="muted small" style="margin-bottom:8px">Eventos por raridade (total: <span id="msEventsTotal">0</span>)</div>
         <div class="rarity-bar-row"><span class="rarity-tag common">Comum</span><div class="rarity-bar"><div class="rarity-fill common" id="rbCommon"></div></div><span class="rarity-num" id="rnCommon">0</span></div>
-        <div class="rarity-bar-row"><span class="rarity-tag rare">Raro</span><div class="rarity-bar"><div class="rarity-fill rare" id="rbRare"></div></div><span class="rarity-num" id="rnRare">0</span></div>
-        <div class="rarity-bar-row"><span class="rarity-tag epic">Épico</span><div class="rarity-bar"><div class="rarity-fill epic" id="rbEpic"></div></div><span class="rarity-num" id="rnEpic">0</span></div>
+        <div class="rarity-bar-row"><span class="rarity-tag rare"><svg class="rar-ic"><use href="#ic-star"/></svg>Raro</span><div class="rarity-bar"><div class="rarity-fill rare" id="rbRare"></div></div><span class="rarity-num" id="rnRare">0</span></div>
+        <div class="rarity-bar-row"><span class="rarity-tag epic"><svg class="rar-ic"><use href="#ic-gem"/></svg>Épico</span><div class="rarity-bar"><div class="rarity-fill epic" id="rbEpic"></div></div><span class="rarity-num" id="rnEpic">0</span></div>
       </div>
     </div>
   </div>
