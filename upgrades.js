@@ -255,6 +255,131 @@ window.UPGRADES = [
     roi: { feature: "noDeficitPenalty", mulPc: 0.90 },
     apply: (s) => { s.features.noDeficitPenalty = true; s.mult.pc *= 0.90; }
   },
+
+  // ==================================================
+  // PATCH 0.9 — Tiers de late game
+  // ==================================================
+  // CLICK
+  {
+    id: "macro_cluster",
+    tab: "click",
+    name: "Cluster de Macros",
+    desc: "+5 PC (poder de clique).",
+    baseCost: 8000,
+    growth: CONFIG.pricing.genericGrowth,
+    type: "stack",
+    visible: (s) => s.blocksMined >= 80,
+    effectLabel: () => `PC +5`,
+    roi: { addPc: 5 },
+    apply: (s) => { s.pcBase += 5; }
+  },
+  {
+    id: "neural_iface",
+    tab: "click",
+    name: "Interface Neural",
+    desc: "+40% PC (multiplicador).",
+    baseCost: 40000,
+    growth: 1.0,
+    type: "unique",
+    visible: (s) => s.blocksMined >= 120,
+    effectLabel: () => `PC ×1.40`,
+    roi: { mulPc: 1.40 },
+    apply: (s) => { s.mult.pc *= 1.40; }
+  },
+  // MACHINES
+  {
+    id: "data_center",
+    tab: "machines",
+    name: "Data Center",
+    desc: "+60 H/s • +24 ⚡/s",
+    baseCost: 30000,
+    growth: CONFIG.pricing.machineGrowth,
+    type: "stack",
+    visible: (s) => s.blocksMined >= 80,
+    effectLabel: () => `+60 H/s • +24⚡`,
+    roi: { addHash: 60, addEnergy: 24 },
+    apply: (s) => { s.hashBase += 60; s.energy += 24; }
+  },
+  {
+    id: "immersion_farm",
+    tab: "machines",
+    name: "Fazenda de Imersão",
+    desc: "+250 H/s • +80 ⚡/s",
+    baseCost: 250000,
+    growth: CONFIG.pricing.machineGrowth,
+    type: "stack",
+    visible: (s) => s.blocksMined >= 150,
+    effectLabel: () => `+250 H/s • +80⚡`,
+    roi: { addHash: 250, addEnergy: 80 },
+    apply: (s) => { s.hashBase += 250; s.energy += 80; }
+  },
+  // EFF
+  {
+    id: "immersion_cool",
+    tab: "eff",
+    name: "Resfriamento por Imersão",
+    desc: "-30% consumo de energia (multiplicador).",
+    baseCost: 60000,
+    growth: 1.0,
+    type: "unique",
+    visible: (s) => s.blocksMined >= 100,
+    effectLabel: () => `⚡ ×0.70`,
+    roi: { mulEnergy: 0.70 },
+    apply: (s) => { s.mult.energy *= 0.70; }
+  },
+  {
+    id: "ai_efficiency",
+    tab: "eff",
+    name: "IA de Eficiência",
+    desc: "-20% ⚡ e +10% H/s (otimização inteligente).",
+    baseCost: 400000,
+    growth: 1.0,
+    type: "unique",
+    visible: (s) => s.blocksMined >= 180,
+    effectLabel: () => `⚡ ×0.80 • H/s ×1.10`,
+    roi: { mulEnergy: 0.80, mulHash: 1.10 },
+    apply: (s) => { s.mult.energy *= 0.80; s.mult.hash *= 1.10; }
+  },
+  // NET
+  {
+    id: "backbone",
+    tab: "net",
+    name: "Backbone Dedicado",
+    desc: "-10% Dificuldade (multiplicador).",
+    baseCost: 50000,
+    growth: 1.0,
+    type: "unique",
+    visible: (s) => s.blocksMined >= 90,
+    effectLabel: () => `D ×0.90`,
+    roi: { mulDifficulty: 0.90 },
+    apply: (s) => { s.mult.difficulty *= 0.90; }
+  },
+  {
+    id: "private_pool",
+    tab: "net",
+    name: "Pool Privada",
+    desc: "+25% RB (recompensa do bloco).",
+    baseCost: 300000,
+    growth: 1.0,
+    type: "unique",
+    visible: (s) => s.blocksMined >= 160,
+    effectLabel: () => `RB ×1.25`,
+    roi: { mulReward: 1.25 },
+    apply: (s) => { s.mult.reward *= 1.25; }
+  },
+  {
+    id: "quantum_route",
+    tab: "net",
+    name: "Roteamento Quântico",
+    desc: "+20% H/s e -5% dificuldade (rede de ponta).",
+    baseCost: 1500000,
+    growth: 1.0,
+    type: "unique",
+    visible: (s) => s.blocksMined >= 250,
+    effectLabel: () => `H/s ×1.20 • D ×0.95`,
+    roi: { mulHash: 1.20, mulDifficulty: 0.95 },
+    apply: (s) => { s.mult.hash *= 1.20; s.mult.difficulty *= 0.95; }
+  },
 ];
 
 // Conveniência: expõe também como global "UPGRADES" (opcional)
