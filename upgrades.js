@@ -255,6 +255,131 @@ window.UPGRADES = [
     roi: { feature: "noDeficitPenalty", mulPc: 0.90 },
     apply: (s) => { s.features.noDeficitPenalty = true; s.mult.pc *= 0.90; }
   },
+
+  // ==================================================
+  // PATCH 0.9 — Tiers de late game
+  // ==================================================
+  // CLICK
+  {
+    id: "macro_cluster",
+    tab: "click",
+    name: "Cluster de Macros",
+    desc: "+5 PC (poder de clique).",
+    baseCost: 8000,
+    growth: CONFIG.pricing.genericGrowth,
+    type: "stack",
+    visible: (s) => s.blocksMined >= 80,
+    effectLabel: () => `PC +5`,
+    roi: { addPc: 5 },
+    apply: (s) => { s.pcBase += 5; }
+  },
+  {
+    id: "neural_iface",
+    tab: "click",
+    name: "Interface Neural",
+    desc: "+40% PC (multiplicador).",
+    baseCost: 40000,
+    growth: 1.0,
+    type: "unique",
+    visible: (s) => s.blocksMined >= 120,
+    effectLabel: () => `PC ×1.40`,
+    roi: { mulPc: 1.40 },
+    apply: (s) => { s.mult.pc *= 1.40; }
+  },
+  // MACHINES
+  {
+    id: "data_center",
+    tab: "machines",
+    name: "Data Center",
+    desc: "+60 H/s • +24 ⚡/s",
+    baseCost: 30000,
+    growth: CONFIG.pricing.machineGrowth,
+    type: "stack",
+    visible: (s) => s.blocksMined >= 80,
+    effectLabel: () => `+60 H/s • +24⚡`,
+    roi: { addHash: 60, addEnergy: 24 },
+    apply: (s) => { s.hashBase += 60; s.energy += 24; }
+  },
+  {
+    id: "immersion_farm",
+    tab: "machines",
+    name: "Fazenda de Imersão",
+    desc: "+250 H/s • +80 ⚡/s",
+    baseCost: 250000,
+    growth: CONFIG.pricing.machineGrowth,
+    type: "stack",
+    visible: (s) => s.blocksMined >= 150,
+    effectLabel: () => `+250 H/s • +80⚡`,
+    roi: { addHash: 250, addEnergy: 80 },
+    apply: (s) => { s.hashBase += 250; s.energy += 80; }
+  },
+  // EFF
+  {
+    id: "immersion_cool",
+    tab: "eff",
+    name: "Resfriamento por Imersão",
+    desc: "-30% consumo de energia (multiplicador).",
+    baseCost: 60000,
+    growth: 1.0,
+    type: "unique",
+    visible: (s) => s.blocksMined >= 100,
+    effectLabel: () => `⚡ ×0.70`,
+    roi: { mulEnergy: 0.70 },
+    apply: (s) => { s.mult.energy *= 0.70; }
+  },
+  {
+    id: "ai_efficiency",
+    tab: "eff",
+    name: "IA de Eficiência",
+    desc: "-20% ⚡ e +10% H/s (otimização inteligente).",
+    baseCost: 400000,
+    growth: 1.0,
+    type: "unique",
+    visible: (s) => s.blocksMined >= 180,
+    effectLabel: () => `⚡ ×0.80 • H/s ×1.10`,
+    roi: { mulEnergy: 0.80, mulHash: 1.10 },
+    apply: (s) => { s.mult.energy *= 0.80; s.mult.hash *= 1.10; }
+  },
+  // NET
+  {
+    id: "backbone",
+    tab: "net",
+    name: "Backbone Dedicado",
+    desc: "-10% Dificuldade (multiplicador).",
+    baseCost: 50000,
+    growth: 1.0,
+    type: "unique",
+    visible: (s) => s.blocksMined >= 90,
+    effectLabel: () => `D ×0.90`,
+    roi: { mulDifficulty: 0.90 },
+    apply: (s) => { s.mult.difficulty *= 0.90; }
+  },
+  {
+    id: "private_pool",
+    tab: "net",
+    name: "Pool Privada",
+    desc: "+25% RB (recompensa do bloco).",
+    baseCost: 300000,
+    growth: 1.0,
+    type: "unique",
+    visible: (s) => s.blocksMined >= 160,
+    effectLabel: () => `RB ×1.25`,
+    roi: { mulReward: 1.25 },
+    apply: (s) => { s.mult.reward *= 1.25; }
+  },
+  {
+    id: "quantum_route",
+    tab: "net",
+    name: "Roteamento Quântico",
+    desc: "+20% H/s e -5% dificuldade (rede de ponta).",
+    baseCost: 1500000,
+    growth: 1.0,
+    type: "unique",
+    visible: (s) => s.blocksMined >= 250,
+    effectLabel: () => `H/s ×1.20 • D ×0.95`,
+    roi: { mulHash: 1.20, mulDifficulty: 0.95 },
+    apply: (s) => { s.mult.hash *= 1.20; s.mult.difficulty *= 0.95; }
+  },
 ];
 
 // Conveniência: expõe também como global "UPGRADES" (opcional)
@@ -265,17 +390,25 @@ window.UPGRADES = window.UPGRADES || [];
 // Eventos (básicos) — usado pelo game.js
 // ==================================================
 window.EVENTS = [
-  // === Eventos timed (dur > 0) ===
-  { id:"bull",        name:"Bull Run 📈",       dur:60, tag:"Bull Run +50% RB",      start:(s)=>{ s.temp.reward *= 1.5; } },
-  { id:"fud",         name:"FUD 📉",             dur:60, tag:"FUD -30% H/s",          start:(s)=>{ s.temp.hash *= 0.7; } },
-  { id:"fee",         name:"Taxa Alta ⚡",       dur:60, tag:"Energia +50% custo",    start:(s)=>{ s.temp.energyCost *= 1.5; } },
-  // PATCH 0.7 — novos eventos timed
-  { id:"hash_spike",  name:"Hash Spike ⚡",      dur:45, tag:"Hash Spike +40% H/s",   start:(s)=>{ s.temp.hash *= 1.4; } },
-  { id:"power_surge", name:"Power Surge 🔋",     dur:30, tag:"Power Surge -40% ⚡",   start:(s)=>{ s.temp.energyCost *= 0.6; } },
+  // === COMUNS — timed (dur > 0) ===
+  { id:"bull",        name:"Bull Run 📈",       rarity:"common", dur:60, tag:"Bull Run +50% RB",      start:(s)=>{ s.temp.reward *= 1.5; } },
+  { id:"fud",         name:"FUD 📉",             rarity:"common", dur:60, tag:"FUD -30% H/s",          start:(s)=>{ s.temp.hash *= 0.7; } },
+  { id:"fee",         name:"Taxa Alta ⚡",       rarity:"common", dur:60, tag:"Energia +50% custo",    start:(s)=>{ s.temp.energyCost *= 1.5; } },
+  { id:"hash_spike",  name:"Hash Spike ⚡",      rarity:"common", dur:45, tag:"Hash Spike +40% H/s",   start:(s)=>{ s.temp.hash *= 1.4; } },
+  { id:"power_surge", name:"Power Surge 🔋",     rarity:"common", dur:30, tag:"Power Surge -40% ⚡",   start:(s)=>{ s.temp.energyCost *= 0.6; } },
 
-  // === Eventos instantâneos (dur:0) ===
-  { id:"lucky",       name:"Lucky Block 🍀",     dur:0,  tag:"Lucky: +50% progresso", start:(s)=>{ s.blockProgress = Math.min(s.blockProgress + 50, 99.9); } },
-  // PATCH 0.7 — novos instantâneos
-  { id:"whale_alert", name:"Whale Alert 🐳",     dur:0,  tag:"Whale: +500 SAT!",      start:(s)=>{ s.sat += 500; } },
-  { id:"net_fork",    name:"Network Fork 🍴",    dur:0,  tag:"Net Fork: +20% progresso", start:(s)=>{ s.blockProgress = Math.min(s.blockProgress + 20, 99.9); } },
+  // === COMUNS — instantâneos (dur:0) ===
+  { id:"lucky",       name:"Lucky Block 🍀",     rarity:"common", dur:0,  tag:"Lucky: +50% progresso", start:(s)=>{ s.blockProgress = Math.min(s.blockProgress + 50, 99.9); } },
+  { id:"whale_alert", name:"Whale Alert 🐳",     rarity:"common", dur:0,  tag:"Whale: +500 SAT!",      start:(s)=>{ s.sat += 500; } },
+  { id:"net_fork",    name:"Network Fork 🍴",    rarity:"common", dur:0,  tag:"Net Fork: +20% progresso", start:(s)=>{ s.blockProgress = Math.min(s.blockProgress + 20, 99.9); } },
+
+  // === RAROS (PATCH 0.9) ===
+  { id:"demand_spike", name:"Pico de Demanda 🚀", rarity:"rare", dur:45, tag:"+100% RB",         start:(s)=>{ s.temp.reward *= 2.0; } },
+  { id:"clean_mempool",name:"Mempool Limpa 🧹",   rarity:"rare", dur:45, tag:"-30% Dificuldade", start:(s)=>{ s.temp.difficulty = (s.temp.difficulty ?? 1) * 0.7; } },
+  { id:"heatwave",     name:"Onda de Calor 🔥",   rarity:"rare", dur:40, tag:"+80% custo ⚡",     start:(s)=>{ s.temp.energyCost *= 1.8; } },
+
+  // === ÉPICOS (PATCH 0.9) ===
+  { id:"satoshi",      name:"Satoshi Aparece 👁️", rarity:"epic", dur:0,  tag:"+5.000 SAT!",          start:(s)=>{ s.sat += 5000; } },
+  { id:"historic_bull",name:"Bull Histórico 🐂",  rarity:"epic", dur:60, tag:"+200% RB • +50% H/s",  start:(s)=>{ s.temp.reward *= 3.0; s.temp.hash *= 1.5; } },
+  { id:"golden_block", name:"Bloco de Ouro 🏆",   rarity:"epic", dur:0,  tag:"+80% progresso",       start:(s)=>{ s.blockProgress = Math.min(s.blockProgress + 80, 99.9); } },
 ];

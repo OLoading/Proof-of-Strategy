@@ -870,3 +870,108 @@ body.reduce-motion #btnFork.fork-attn{ animation:none; border-color: var(--btc);
 .tutorial-actions{ display:flex; justify-content:space-between; gap:10px; margin-top:14px; }
 .tutorial-actions .btn{ padding:8px 16px; }
 body.reduce-motion #tutorialSpotlight{ transition:none; }
+
+/* =============================================
+   PATCH 0.9 — Daily Bonus / Streak
+   ============================================= */
+
+/* indicador no botão 📅 do header */
+@keyframes daily-pulse{
+  0%,100%{ box-shadow: 0 0 0 0 rgba(247,147,26,0); }
+  50%    { box-shadow: 0 0 10px 2px rgba(247,147,26,.55); }
+}
+#btnDaily{ position:relative; }
+#btnDaily.has-bonus{
+  border-color: var(--btc);
+  background: rgba(247,147,26,.14);
+  animation: daily-pulse 1.3s ease-in-out infinite;
+}
+#btnDaily.has-bonus::after{
+  content:"";
+  position:absolute;
+  top:6px; right:6px;
+  width:8px; height:8px;
+  border-radius:50%;
+  background: var(--btc);
+  box-shadow: 0 0 6px var(--btc);
+}
+body.reduce-motion #btnDaily.has-bonus{ animation:none; }
+
+/* card do modal */
+.daily-card{ width:min(620px, 100%); }
+.daily-strip{
+  display:grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap:8px;
+  margin:14px 0;
+}
+@media (max-width: 620px){
+  .daily-strip{ grid-template-columns: repeat(4, 1fr); }
+}
+.daily-cell{
+  position:relative;
+  padding:10px 6px;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.02);
+  text-align:center;
+  transition: border-color .2s, background .2s, transform .2s;
+}
+.daily-cell.done{
+  border-color: rgba(84,255,160,.30);
+  background: rgba(84,255,160,.05);
+  opacity:.8;
+}
+.daily-cell.today{
+  border-color: var(--btc);
+  background: rgba(247,147,26,.10);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(247,147,26,.18);
+}
+.daily-day{ font-size:11px; color:var(--muted); margin-bottom:6px; }
+.daily-amt{ font-weight:800; font-size:13px; color:var(--btc-soft); }
+.daily-cell.today .daily-amt{ color:#ffe066; }
+.daily-check{
+  position:absolute;
+  top:4px; right:6px;
+  font-size:11px;
+  color:#54ffa0;
+}
+.daily-foot{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-top:8px;
+}
+.daily-reward-value{ font-weight:900; font-size:18px; color:var(--btc-soft); }
+.daily-foot .btn.primary{ padding:10px 22px; }
+
+/* Item 3 — Raridade de eventos */
+.pill.event-rare{
+  border-color: rgba(120,170,255,.5);
+  background: rgba(120,170,255,.12);
+  color:#bcd4ff;
+}
+.pill.event-epic{
+  border-color: rgba(214,140,255,.6);
+  background: rgba(214,140,255,.14);
+  color:#ecc6ff;
+  font-weight:800;
+  box-shadow: 0 0 12px rgba(214,140,255,.25);
+}
+@keyframes epic-flash-kf{
+  0%   { opacity:0; }
+  25%  { opacity:1; }
+  100% { opacity:0; }
+}
+.epic-flash{
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+  z-index:40;
+  background:
+    radial-gradient(120% 80% at 50% 50%, rgba(214,140,255,0) 55%, rgba(214,140,255,.30) 100%);
+  animation: epic-flash-kf .9s ease-out forwards;
+}
+body.reduce-motion .epic-flash{ display:none; }

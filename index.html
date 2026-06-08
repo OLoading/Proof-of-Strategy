@@ -14,10 +14,11 @@
   <header class="topbar">
     <div class="brand">
       <div class="brand-title">Proof of Strategy</div>
-      <div class="brand-sub muted">Hardcore miner clicker • Patch 0.8</div>
+      <div class="brand-sub muted">Hardcore miner clicker • Patch 0.9</div>
     </div>
 
     <div class="top-actions">
+      <button class="btn ghost" id="btnDaily" title="Bônus diário">📅</button>
       <button class="btn ghost" id="btnOpenSettings" title="Configurações">⚙️</button>
       <div class="save-pill" id="saveInfo">Salvo • —</div>
     </div>
@@ -246,6 +247,29 @@
       <div class="tutorial-actions">
         <button class="btn ghost" id="tutorialSkip">Pular</button>
         <button class="btn primary" id="tutorialNext">Próximo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Daily Bonus (Patch 0.9) -->
+  <div class="modal" id="dailyModal" hidden>
+    <div class="modal-card daily-card">
+      <div class="settings-head">
+        <div>
+          <div class="modal-title">📅 Bônus Diário</div>
+          <div class="modal-sub muted" id="dailySub">Volte todo dia para aumentar seu streak!</div>
+        </div>
+        <button class="btn ghost" id="btnCloseDaily">✕</button>
+      </div>
+
+      <div id="dailyStrip" class="daily-strip"></div>
+
+      <div class="daily-foot">
+        <div class="daily-reward-info">
+          <div class="muted small">Recompensa de hoje</div>
+          <div class="daily-reward-value" id="dailyRewardValue">—</div>
+        </div>
+        <button class="btn primary" id="btnClaimDaily">Coletar</button>
       </div>
     </div>
   </div>

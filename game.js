@@ -371,6 +371,116 @@ function claimMission(id){
   renderShop();
 }
 
+// ==================================================
+// PATCH 0.9 — Daily Bonus / Streak
+// Loja própria em localStorage; sobrevive a Fork/Reset.
+// ==================================================
+const DAILY_KEY = "pos_daily_v1";
+let daily = { lastClaim: null, streak: 0 };
+function loadDaily(){
+  try{ const raw = localStorage.getItem(DAILY_KEY); if(raw) daily = { ...daily, ...JSON.parse(raw) }; }catch{}
+}
+function saveDaily(){
+  try{ localStorage.setItem(DAILY_KEY, JSON.stringify(daily)); }catch{}
+}
+
+const DAILY_REWARDS = [200, 400, 700, 1100, 1600, 2200, 3000]; // dia 1..7+ (satura no 7)
+const DAILY_MAX_DAY = DAILY_REWARDS.length;
+
+function dayKey(d = new Date()){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function dayDiff(aKey, bKey){
+  const a = new Date(aKey + "T00:00:00");
+  const b = new Date(bKey + "T00:00:00");
+  return Math.round((b - a) / 86400000);
+}
+function dailyRewardFor(streakDay){
+  const idx = clamp(streakDay - 1, 0, DAILY_REWARDS.length - 1);
+  const base = DAILY_REWARDS[idx];
+  // escala leve com forks para continuar relevante no late game
+  return Math.floor(base * (1 + 0.10 * (stats.totalForks || 0)));
+}
+function dailyAvailable(){
+  return daily.lastClaim !== dayKey();
+}
+// qual seria o streak se coletasse agora
+function pendingStreak(){
+  if(!daily.lastClaim) return 1;
+  const diff = dayDiff(daily.lastClaim, dayKey());
+  if(diff <= 0) return daily.streak;       // já coletou hoje
+  if(diff === 1) return Math.min(daily.streak + 1, 9999); // dia seguinte
+  return 1;                                 // quebrou o streak
+}
+function claimDaily(){
+  if(!dailyAvailable()){ playSound("error"); return; }
+  const newStreak = pendingStreak();
+  const sat = dailyRewardFor(newStreak);
+  state.sat += sat;
+  daily.streak = newStreak;
+  daily.lastClaim = dayKey();
+  saveDaily();
+  playSound("buy");
+  toast(`📅 Bônus diário (dia ${newStreak}): +${fmtBig(sat)} SAT!`);
+  pushLog(`📅 Bônus diário coletado — streak dia ${newStreak}: +${fmtBig(sat)} SAT.`);
+  renderDaily();
+  updateDailyIndicator();
+  renderUI();
+  renderShop();
+}
+
+function openDailyModal(){
+  const m = $("dailyModal");
+  if(!m) return;
+  renderDaily();
+  m.hidden = false;
+  document.body.style.overflow = "hidden";
+}
+function closeDailyModal(){
+  const m = $("dailyModal");
+  if(!m) return;
+  m.hidden = true;
+  document.body.style.overflow = "";
+}
+function renderDaily(){
+  const strip = $("dailyStrip");
+  const avail = dailyAvailable();
+  const claimStreak = pendingStreak();            // dia que será coletado (ou o atual se já coletou)
+  const shownStreak = avail ? claimStreak : daily.streak;
+
+  if(strip){
+    strip.innerHTML = "";
+    for(let d = 1; d <= DAILY_MAX_DAY; d++){
+      const cell = document.createElement("div");
+      const isToday = avail && d === claimStreak;
+      const past = d < shownStreak || (!avail && d <= daily.streak);
+      cell.className = "daily-cell" + (isToday ? " today" : "") + (past && !isToday ? " done" : "");
+      const label = d === DAILY_MAX_DAY ? `Dia ${d}+` : `Dia ${d}`;
+      cell.innerHTML = `
+        <div class="daily-day">${label}</div>
+        <div class="daily-amt">${fmtBig(dailyRewardFor(d))}</div>
+        ${past && !isToday ? `<div class="daily-check">✓</div>` : ""}
+      `;
+      strip.appendChild(cell);
+    }
+  }
+
+  if($("dailySub")){
+    $("dailySub").textContent = avail
+      ? `Streak atual: ${daily.streak} dia(s). Colete para chegar ao dia ${claimStreak}!`
+      : `Você já coletou hoje. Streak: ${daily.streak} dia(s). Volte amanhã!`;
+  }
+  if($("dailyRewardValue")) $("dailyRewardValue").textContent = `+${fmtBig(dailyRewardFor(claimStreak))} SAT`;
+  if($("btnClaimDaily")){
+    $("btnClaimDaily").disabled = !avail;
+    $("btnClaimDaily").textContent = avail ? "Coletar" : "Coletado ✓";
+  }
+}
+function updateDailyIndicator(){
+  const btn = $("btnDaily");
+  if(btn) btn.classList.toggle("has-bonus", dailyAvailable());
+}
+
 const ACHIEVEMENTS = [
   // === Blocos ===
   { id:"first_block",   name:"Primeiro Bloco",      desc:"Valide seu primeiro bloco na chain.",          check:(s)=> s.blocksMined >= 1 },
@@ -432,16 +542,22 @@ function checkAchievements(){
 // SECTION: Especializações (Patch 0.5)
 // ==================================================
 const SPEC = {
-  capTotal: 10,
+  capTotal: 18,
   engineer: [
     { id:"a", name:"Grid Tuning", desc:"+1 nível = -4% custo de energia", max:5, apply:(s,lvl)=>{ s.temp.energyCost *= (1 - 0.04*lvl); } },
     { id:"b", name:"ASIC Scheduler", desc:"+1 nível = +6% H/s", max:5, apply:(s,lvl)=>{ s.temp.hash *= (1 + 0.06*lvl); } },
     { id:"c", name:"Difficulty Dampener", desc:"+1 nível = -3% dificuldade", max:4, apply:(s,lvl)=>{ s.temp.difficulty *= (1 - 0.03*lvl); } },
+    // PATCH 0.9 — perks avançados
+    { id:"d", name:"Loop de Imersão", desc:"+1 nível = -5% custo de energia", max:4, apply:(s,lvl)=>{ s.temp.energyCost *= (1 - 0.05*lvl); } },
+    { id:"e", name:"Firmware Quântico", desc:"+1 nível = +5% H/s e -2% dificuldade", max:3, apply:(s,lvl)=>{ s.temp.hash *= (1 + 0.05*lvl); s.temp.difficulty *= (1 - 0.02*lvl); } },
   ],
   maxi: [
     { id:"a", name:"Block Hunger", desc:"+1 nível = +5% recompensa", max:5, apply:(s,lvl)=>{ s.temp.reward *= (1 + 0.05*lvl); } },
     { id:"b", name:"Click Brutality", desc:"+1 nível = +6% PC", max:5, apply:(s,lvl)=>{ s.temp.pc *= (1 + 0.06*lvl); } },
     { id:"c", name:"Overclock Mindset", desc:"+1 nível = +4% H/s, +2% custo energia", max:4, apply:(s,lvl)=>{ s.temp.hash *= (1 + 0.04*lvl); s.temp.energyCost *= (1 + 0.02*lvl); } },
+    // PATCH 0.9 — perks avançados
+    { id:"d", name:"Motor da Ganância", desc:"+1 nível = +7% recompensa", max:4, apply:(s,lvl)=>{ s.temp.reward *= (1 + 0.07*lvl); } },
+    { id:"e", name:"Hiper Clicker", desc:"+1 nível = +8% PC e +3% recompensa", max:3, apply:(s,lvl)=>{ s.temp.pc *= (1 + 0.08*lvl); s.temp.reward *= (1 + 0.03*lvl); } },
   ]
 };
 
@@ -774,45 +890,74 @@ function reapplyActiveEvent(){
   // Patch 0.7: usa dur>0 em vez de id!=="lucky" — cobre todos os instantâneos
   if(ev && ev.dur > 0) ev.start(state);
 }
+const RARITY_LABEL = { common: "", rare: "⭐ RARO", epic: "💎 ÉPICO" };
 function startEvent(ev){
+  const rarity = ev.rarity || "common";
   if(ev.dur > 0){
     state.activeEvent = { id: ev.id, endsAt: Date.now() + ev.dur * 1000 };
   }
   ev.start(state);
   if($("eventTag")){
     $("eventTag").hidden = false;
-    $("eventTag").textContent = ev.tag;
+    $("eventTag").textContent = (RARITY_LABEL[rarity] ? RARITY_LABEL[rarity] + " • " : "") + ev.tag;
+    $("eventTag").className = `pill event-${rarity}`;
   }
-  toast(ev.name);
+  const prefix = rarity === "epic" ? "💎 ÉPICO! " : rarity === "rare" ? "⭐ Raro! " : "";
+  toast(prefix + ev.name);
   playSound("event");
-  pushLog(`✨ Evento: ${ev.name}`);
+  pushLog(`${rarity === "epic" ? "💎" : rarity === "rare" ? "⭐" : "✨"} Evento${rarity !== "common" ? ` (${rarity})` : ""}: ${ev.name}`);
   stats.totalEvents = (stats.totalEvents || 0) + 1;
+
+  // flash de tela para épicos
+  if(rarity === "epic") flashEpic();
 
   // Instantâneo: limpa activeEvent e esconde tag após 1.2s
   if(ev.dur === 0){
     state.activeEvent = null;
     setTimeout(()=>{ if($("eventTag")) $("eventTag").hidden = true; }, 1200);
   }
-  // A3: chuva de ₿ apenas no Bull Run
-  if(ev.id === "bull") startBitcoinRain();
-  else stopBitcoinRain();
+
+  // A3/0.9: chuva de ₿ no Bull Run e em qualquer evento épico
+  if(ev.id === "bull" || rarity === "epic"){
+    startBitcoinRain();
+    if(ev.dur === 0) setTimeout(stopBitcoinRain, 3000); // épico instantâneo: rajada curta
+  } else {
+    stopBitcoinRain();
+  }
+}
+// PATCH 0.9 — flash visual para eventos épicos
+function flashEpic(){
+  if(ACCESS.reduceMotion) return;
+  const el = document.createElement("div");
+  el.className = "epic-flash";
+  document.body.appendChild(el);
+  el.addEventListener("animationend", ()=> el.remove(), { once:true });
+}
+// PATCH 0.9 — seleção ponderada por raridade
+const RARITY_WEIGHTS = { common: 75, rare: 20, epic: 5 };
+function pickWeightedEvent(){
+  const r = Math.random() * 100;
+  const tier = r < RARITY_WEIGHTS.common ? "common"
+             : r < (RARITY_WEIGHTS.common + RARITY_WEIGHTS.rare) ? "rare"
+             : "epic";
+  const pool = EVENTS.filter(e => (e.rarity || "common") === tier);
+  if(!pool.length) return EVENTS[Math.floor(Math.random() * EVENTS.length)];
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 function maybeTriggerEvent(){
   if(Math.random() >= CONFIG.block.eventChancePerBlock) return;
   state.activeEvent = null;           // evita empilhar com um evento anterior ainda ativo
   clearTemp();
-  const ev = EVENTS[Math.floor(Math.random() * EVENTS.length)];
-  startEvent(ev);
+  startEvent(pickWeightedEvent());
 }
 function updateEvent(){
   if(!state.activeEvent) return;
   if(Date.now() >= state.activeEvent.endsAt){
-    const wasRain = state.activeEvent.id === "bull";
     state.activeEvent = null;
     clearTemp();
-    if($("eventTag")) $("eventTag").hidden = true;
-    // A3: para rain quando Bull Run termina
-    if(wasRain) stopBitcoinRain();
+    if($("eventTag")){ $("eventTag").hidden = true; $("eventTag").className = "pill"; }
+    // 0.9: garante parar a chuva (Bull Run ou épicos timed)
+    stopBitcoinRain();
     pushLog("⏱️ Evento terminou");
     toast("Evento terminou");
   }
@@ -1635,8 +1780,10 @@ function renderUI(){
   if(state.activeEvent){
     const ev = EVENTS.find(x => x.id === state.activeEvent.id);
     if(ev && $("eventTag")){
+      const rarity = ev.rarity || "common";
       $("eventTag").hidden = false;
-      $("eventTag").textContent = ev.tag;
+      $("eventTag").textContent = (RARITY_LABEL[rarity] ? RARITY_LABEL[rarity] + " • " : "") + ev.tag;
+      $("eventTag").className = `pill event-${rarity}`;
     }
   }
 
@@ -1764,6 +1911,7 @@ function boot(){
   loadAch();
   loadUIFlags();
   loadMissions();
+  loadDaily();
   applyAccess();
 
   initAudio();
@@ -2040,6 +2188,14 @@ document.querySelectorAll('[data-close="settings"]').forEach(el=>{
     startTutorial();
   });
 
+  // PATCH 0.9 — daily bonus
+  if($("btnDaily")) $("btnDaily").addEventListener("click", openDailyModal);
+  if($("btnCloseDaily")) $("btnCloseDaily").addEventListener("click", closeDailyModal);
+  if($("btnClaimDaily")) $("btnClaimDaily").addEventListener("click", claimDaily);
+  if($("dailyModal")) $("dailyModal").addEventListener("click", (e)=>{
+    if(e.target === $("dailyModal")) closeDailyModal();
+  });
+
   // keyboard shortcuts + ESC closes modals
   window.addEventListener("keydown", (e)=>{
     if(e.repeat) return;
@@ -2049,6 +2205,7 @@ document.querySelectorAll('[data-close="settings"]').forEach(el=>{
     if(key === "escape"){
       if(!$("settingsModal")?.hidden) closeSettings();
       if(!$("choiceModal")?.hidden) closeChoiceModal();
+      if(!$("dailyModal")?.hidden) closeDailyModal();
       return;
     }
 
@@ -2108,8 +2265,15 @@ document.querySelectorAll('[data-close="settings"]').forEach(el=>{
   if(state.log.length === 0) pushLog("🟢 Início da sessão");
   requestAnimationFrame(loop);
 
-  // PATCH 0.8 — tutorial de primeira sessão (após o primeiro render)
-  requestAnimationFrame(()=> maybeStartTutorial());
+  // PATCH 0.8/0.9 — tutorial e bônus diário (após o primeiro render)
+  updateDailyIndicator();
+  requestAnimationFrame(()=>{
+    if(!uiFlags.tutorialDone){
+      maybeStartTutorial();        // novato: tutorial primeiro; daily via botão 📅
+    } else if(dailyAvailable()){
+      openDailyModal();            // veterano: abre o bônus diário direto
+    }
+  });
 }
 
 // ============================================
