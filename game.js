@@ -1472,6 +1472,10 @@ let _lastClickTime = 0;
 const COMBO_TIMEOUT_MS = 1500;
 const COMBO_MAX = 8;
 
+// PATCH 1.0 — trava o autosave enquanto restauramos um backup (evita
+// que o loop regrave o estado em memória por cima do backup antes do reload)
+let _restoringBackup = false;
+
 function getComboMult(){
   // 1.0 → 2.0 linear across 0→COMBO_MAX
   return 1.0 + (_clickCombo / COMBO_MAX);
@@ -1595,14 +1599,25 @@ function update(dt){
     updateComboDisplay();
   }
 
-  if(Date.now() - state.lastSave >= CONFIG.autosaveMs){
+  if(!_restoringBackup && Date.now() - state.lastSave >= CONFIG.autosaveMs){
     SAVE.saveGame(state);
     state.lastSave = Date.now();
     if($("saveInfo")) $("saveInfo").textContent = `Salvo • ${new Date().toLocaleTimeString("pt-BR")}`;
     saveStats();
+    updateBackupInfo();
   }
 
   checkAchievements();
+}
+
+// PATCH 1.0 — exibe horário do último backup automático
+function updateBackupInfo(){
+  const el = $("backupInfo");
+  if(!el) return;
+  const when = SAVE.hasBackup() ? SAVE.backupInfo() : null;
+  el.textContent = when
+    ? `💾 Backup automático: ${new Date(when).toLocaleString("pt-BR")}`
+    : "💾 Backup automático: ainda não criado";
 }
 
 function loop(){
@@ -2084,6 +2099,26 @@ document.querySelectorAll('[data-close="settings"]').forEach(el=>{
     }
   });
 
+  // PATCH 1.0 — restaurar backup
+  if($("btnRestoreBackup")) $("btnRestoreBackup").addEventListener("click", ()=>{
+    if(!SAVE.hasBackup()){
+      toast("Sem backup disponível.");
+      playSound("error");
+      return;
+    }
+    const when = SAVE.backupInfo();
+    const whenStr = when ? new Date(when).toLocaleString("pt-BR") : "desconhecido";
+    if(!confirm(`Restaurar o backup de ${whenStr}?\n\nO progresso atual da run será substituído pelo backup.`)) return;
+    if(SAVE.restoreBackup()){
+      _restoringBackup = true;   // impede o autosave de regravar por cima
+      toast("Backup restaurado — recarregando…");
+      setTimeout(()=> location.reload(), 600);
+    } else {
+      toast("Falha ao restaurar backup.");
+      playSound("error");
+    }
+  });
+
   if($("btnImport")) $("btnImport").addEventListener("click", ()=>{
     const raw = prompt("Cole seu save aqui:");
     if(!raw) return;
@@ -2253,6 +2288,9 @@ document.querySelectorAll('[data-close="settings"]').forEach(el=>{
 
     clearTemp();
     applyOfflineProgress(loaded);
+
+    // PATCH 1.0 — garante um backup de segurança no início da sessão
+    if(!SAVE.hasBackup()) SAVE.snapshotBackup();
   }else{
     SAVE.saveGame(state);
   }
@@ -2267,6 +2305,7 @@ document.querySelectorAll('[data-close="settings"]').forEach(el=>{
 
   // PATCH 0.8/0.9 — tutorial e bônus diário (após o primeiro render)
   updateDailyIndicator();
+  updateBackupInfo();
   requestAnimationFrame(()=>{
     if(!uiFlags.tutorialDone){
       maybeStartTutorial();        // novato: tutorial primeiro; daily via botão 📅
