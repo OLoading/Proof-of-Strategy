@@ -2,7 +2,7 @@
   "name": "Proof of Strategy",
   "short_name": "PoS Miner",
   "description": "Hardcore Bitcoin miner clicker — mine blocos, evolua sua operação e domine a chain.",
-  "id": "/",
+  "id": "./",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
